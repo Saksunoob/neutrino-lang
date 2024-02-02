@@ -1,10 +1,9 @@
 use std::{env, fs, path::Path, process::exit};
 
-use crate::{builder::build, parser::parse, tokenizer::tokenize};
+use crate::lexer::tokenize;
 
-mod tokenizer;
+mod lexer;
 mod parser;
-mod builder;
 
 fn main() {
     let args: Vec<String> = env::args().collect();
@@ -19,14 +18,17 @@ fn main() {
         },
     };
 
+    if !program_directory.extension().is_some_and(|ext| ext == "nu"){
+        eprintln!("File is not a neutrino file, should end with .nu");
+        exit(1);
+    }
+
     let program_content = fs::read_to_string(program_directory).unwrap_or_else(|err| {
         eprintln!("Error reading provided file\n{err}");
         exit(err.raw_os_error().unwrap_or(1))
     });
 
     let tokens = tokenize(&program_content);
-    let syntax_tree = parse(&tokens);
-    let ir = build(&syntax_tree);
-
-    // Pass ir to most likely LLVM, i'll figure it out later.
+    
+    println!("Tokens:\n{tokens}")
 }

@@ -1,4 +1,4 @@
-use crate::tokenizer::Tokens;
+use crate::lexer::Tokens;
 
 pub fn parse(tokens: &Tokens) -> SyntaxTree {
     todo!();

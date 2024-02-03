@@ -1,4 +1,4 @@
-use std::{env, fs, path::Path, process::exit};
+use std::{env, fs, path::Path, process::{exit, Command, Stdio}};
 
 use crate::lexer::tokenize;
 
@@ -30,5 +30,64 @@ fn main() {
 
     let tokens = tokenize(&program_content);
     
-    println!("Tokens:\n{tokens}")
+    println!("Tokens:\n{tokens}");
+
+    if compile("test.asm", "test.exe") {
+        let test_status = Command::new("./test.exe")
+        .status().unwrap();
+
+        println!("Program exited with {}", test_status)
+    }
+}
+
+fn compile(from: impl ToString, to: impl ToString) -> bool {
+    let from = from.to_string();
+    let to = to.to_string();
+
+    let _ = fs::remove_file(&to);
+    let _ = fs::remove_file("output.o");
+
+    // Run NASM and get it's status
+    let nasm_status = Command::new("./mingw64/bin/nasm.exe")
+        .args(["-fwin64", &from, "-o", "output.o"])
+        .status();
+
+    // Check if the assembly process was successful
+    match nasm_status {
+        Ok(status) => { // Got a status (File found)
+            if !status.success() { // NASM returned 0
+                eprintln!("Error assembling program \"{from}\"\nNASM didn't exit successfully");
+                return false;
+            }
+        },
+        Err(err) => { // File not found
+            eprintln!("Error assembling program \"{from}\"\n{err}");
+            return false;
+        },
+    }
+
+    // Run GCC with NASM's output
+    let gcc_status = Command::new("./mingw64/bin/gcc.exe")
+        .args(["output.o", "-o", &to])
+        .status();
+
+    // Check if the linking process was successful
+    match gcc_status {
+        Ok(status) => { // Got a status (File found)
+            if !status.success() { // GCC returned 0
+                eprintln!("Error linking program \"{from}\"\nGCC didn't exit successfully");
+                return false;
+            }
+        },
+        Err(err) => { // File not found
+            eprintln!("Error linking program \"{from}\"\n{err}");
+            return false;
+        },
+    }
+
+    // Remove intermediary file
+    let _ = fs::remove_file("output.o");
+
+    // Compilation successful
+    return true
 }

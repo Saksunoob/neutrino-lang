@@ -1,9 +1,10 @@
 use std::{env, fs, path::Path, process::{exit, Command}};
 
-use crate::{lexer::tokenize, parser::parse};
+use crate::{codegen::generate, lexer::tokenize, parser::parse};
 
 mod lexer;
 mod parser;
+mod codegen;
 
 fn main() {
     let args: Vec<String> = env::args().collect();
@@ -31,6 +32,16 @@ fn main() {
     let tokens = tokenize(&program_content);
     println!("Tokens:\n{tokens}");
     let syntax_tree = parse(tokens);
+    let asm = generate(syntax_tree);
+
+    fs::write("output.asm", asm);
+
+    if compile("output.asm", "output.exe") {
+        let test_status = Command::new("./output.exe")
+        .status().unwrap();
+
+        println!("Program exited with {}", test_status)
+    }
     
 
     if compile("test.asm", "test.exe") {

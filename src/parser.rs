@@ -81,7 +81,7 @@ pub fn parse_function(tokens: &mut Tokens) -> Function {
     };
 
     Function {
-        id: name,
+        name,
         closure: parse_closure(return_type, parameters, tokens),
     }
 }
@@ -290,7 +290,7 @@ fn parse_expression(tokens: &mut Tokens, variables: &mut HashMap<String, Type>) 
 
 #[derive(Debug)]
 pub struct SyntaxTree {
-    functions: Vec<Function>
+    pub functions: Vec<Function>
 }
 impl SyntaxTree {
     pub fn new() -> Self {
@@ -305,8 +305,8 @@ impl SyntaxTree {
 
 #[derive(Debug)]
 pub struct Function {
-    id: String,
-    closure: Closure
+    pub name: String,
+    pub closure: Closure
 }
 
 #[derive(Debug)]
@@ -334,15 +334,15 @@ pub enum Expression {
 
 #[derive(Debug)]
 pub struct Closure {
-    return_type: Type,
-    parameters: Vec<(String, Type)>,
-    instructions: Vec<Instruction>
+    pub return_type: Type,
+    pub parameters: Vec<(String, Type)>,
+    pub instructions: Vec<Instruction>
 }
 
 #[derive(Debug)]
 pub struct FunctionCall {
-    function: String,
-    parameters: Vec<Expression>
+    pub function: String,
+    pub parameters: Vec<Expression>
 }
 impl FunctionCall {
     pub fn new(function: String, parameters: Vec<Expression>) -> Self {

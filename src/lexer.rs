@@ -1,4 +1,4 @@
-use std::{fmt::Display, process::exit};
+use std::{collections::VecDeque, fmt::{write, Display}, process::exit};
 
 pub fn tokenize(file: &String) -> Tokens {
     let mut chars = file.chars();
@@ -27,27 +27,33 @@ pub fn tokenize(file: &String) -> Tokens {
                 buffer.push(char)
 
             } else {
-                // Check if last token was a closing bracket
-                if tokens.tokens.last().is_some_and(|token| if let Token::SpecialSymbol(SpecialSymbol::CloseBracket) = token {true} else {false}) {
-                    return tokens;
+                if buffer.len() > 0 {
+                    tokens.push(Token::from_buffer(buffer));
                 }
-
-                eprintln!("Unexpected end of file");
-                exit(1);
+                tokens.push(Token::EOF);
+                return tokens;
             }
         }
     }
 }
 
 pub struct Tokens {
-    tokens: Vec<Token>
+    tokens: VecDeque<Token>
 }
 impl Tokens {
     pub fn new() -> Self {
-        Tokens { tokens: Vec::new() }
+        Tokens { tokens: VecDeque::new() }
     }
     pub fn push(&mut self, token: Token) {
-        self.tokens.push(token);
+        self.tokens.push_back(token);
+    }
+    // Returns next token and consumes it, panics if no tokens remain
+    pub fn next(&mut self) -> Token {
+        self.tokens.pop_front().unwrap_or(Token::EOF)
+    }
+    // Returns next token, panics if no tokens remain
+    pub fn peek(&mut self) -> &Token {
+        self.tokens.front().unwrap_or(&Token::EOF)
     }
 }
 impl Display for Tokens {
@@ -55,47 +61,17 @@ impl Display for Tokens {
         let mut lines = Vec::new();
         let mut line = Vec::new();
 
-        let push = |line: &mut Vec<String>, string: &str| {
-            line.push(string.to_string())
-        };
-
-        let new_line = |lines: &mut Vec<Vec<String>>, line: &mut Vec<String>| {
-            lines.push(line.clone());
-            *line = Vec::new()
-        };
-
         self.tokens.iter().for_each(|token| {
+            line.push(format!("{token}"));
+
             match token {
-                Token::Keyword(keyword) => {
-                    match keyword {
-                        Keyword::Function => push(&mut line, "Function"),
-                        Keyword::Assignment => push(&mut line, "Assign"),
-                        Keyword::Return => push(&mut line, "Return")
-                    }
+                Token::SpecialSymbol(SpecialSymbol::Terminator) 
+                | Token::SpecialSymbol(SpecialSymbol::OpenBracket) 
+                | Token::SpecialSymbol(SpecialSymbol::CloseBracket) => {
+                    lines.push(line.clone());
+                    line = Vec::new();
                 },
-                Token::Value(value) => {
-                    match value {
-                        Value::Integer(i) => push(&mut line, &i.to_string()),
-                        Value::Float(f) => push(&mut line, &f.to_string()),
-                        Value::Boolean(b) => push(&mut line, &b.to_string()),
-                    }
-                },
-                Token::Identifier(id) => push(&mut line, &format!("\"{}\"", &id)),
-                Token::SpecialSymbol(symbol) => match symbol {
-                    SpecialSymbol::Equals => push(&mut line, "="),
-                    SpecialSymbol::Terminator => {push(&mut line, ";"); new_line(&mut lines, &mut line)},
-                    SpecialSymbol::OpenParen => push(&mut line, "("),
-                    SpecialSymbol::CloseParen => push(&mut line, ")"),
-                    SpecialSymbol::OpenBracket => {push(&mut line, "{"); new_line(&mut lines, &mut line)},
-                    SpecialSymbol::CloseBracket => {push(&mut line, "}"); new_line(&mut lines, &mut line)},
-                    SpecialSymbol::Comma => push(&mut line, ","),
-                },
-                Token::Operator(op) => match op {
-                    Operator::Plus => push(&mut line, "+"),
-                    Operator::Minus => push(&mut line, "-"),
-                    Operator::Multiply => push(&mut line, "*"),
-                    Operator::Divide => push(&mut line, "/"),
-                },
+                _ => ()
             }
         });
 
@@ -104,8 +80,10 @@ impl Display for Tokens {
 }
 
 pub enum Token {
+    EOF,
     Keyword(Keyword),
     Value(Value),
+    Type(Type),
     Identifier(String),
     SpecialSymbol(SpecialSymbol),
     Operator(Operator)
@@ -117,6 +95,9 @@ impl Token {
 
         if let Some(keyword) = Keyword::from_string(&string) {
             return Token::Keyword(keyword);
+        }
+        if let Some(type_) = Type::from_string(&string) {
+            return Token::Type(type_);
         }
         if let Some(symbol) = SpecialSymbol::from_string(&string) {
             return Token::SpecialSymbol(symbol);
@@ -131,6 +112,56 @@ impl Token {
         return Token::Identifier(string);
     }
 }
+impl Display for Token {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Token::EOF => write!(f, "EOF"),
+            Token::Identifier(id) => write!(f, "\"{id}\""),
+            Token::Keyword(keyword) => {
+                match keyword {
+                    Keyword::Function => write!(f, "Function"),
+                    Keyword::Assignment => write!(f, "Assign"),
+                    Keyword::Return => write!(f, "Return"),
+                }
+            },
+            Token::Type(type_) => {
+                match type_ {
+                    Type::Void => write!(f, "Void"),
+                    Type::Integer => write!(f, "Integer"),
+                    Type::Float => write!(f, "Float"),
+                    Type::Boolean => write!(f, "Boolean"),
+                }
+            }
+            Token::Value(value) => {
+                match value {
+                    Value::Integer(i) => write!(f, "{}", &i.to_string()),
+                    Value::Float(v) => write!(f, "{}", &v.to_string()),
+                    Value::Boolean(b) => write!(f, "{}", &b.to_string()),
+                }
+            },
+            Token::SpecialSymbol(symbol) => {
+                match symbol {
+                    SpecialSymbol::Equals => write!(f, "="),
+                    SpecialSymbol::Terminator => write!(f, ";"),
+                    SpecialSymbol::OpenParen => write!(f, "("),
+                    SpecialSymbol::CloseParen => write!(f, ")"),
+                    SpecialSymbol::OpenBracket => write!(f, "{{"),
+                    SpecialSymbol::CloseBracket => write!(f, "}}"),
+                    SpecialSymbol::Comma => write!(f, ","),
+                }
+            },
+            Token::Operator(op) => {
+                match op {
+                    Operator::Plus => write!(f, "+"),
+                    Operator::Minus => write!(f, "-"),
+                    Operator::Multiply => write!(f, "*"),
+                    Operator::Divide => write!(f, "/"),
+                }
+            },
+        }
+    }
+}
+
 
 pub enum Keyword {
     Function,
@@ -148,6 +179,26 @@ impl Keyword {
     }
 }
 
+#[derive(Clone, Copy, Debug)]
+pub enum Type {
+    Void,
+    Integer,
+    Float,
+    Boolean
+}
+impl Type {
+    pub fn from_string(string: &String) -> Option<Type> {
+        match string.as_str() {
+            "void" => Some(Self::Void),
+            "int" => Some(Self::Integer),
+            "float" => Some(Self::Float),
+            "bool" => Some(Self::Boolean),
+            _ => None
+        }
+    }
+}
+
+#[derive(Debug)]
 pub enum Value {
     Integer(i64),
     Float(f64),
@@ -165,6 +216,13 @@ impl Value {
             "true" => Some(Self::Boolean(true)),
             "false" => Some(Self::Boolean(false)),
             _ => None
+        }
+    }
+    pub fn get_type(&self) -> Type {
+        match self {
+            Value::Integer(_) => Type::Integer,
+            Value::Float(_) => Type::Float,
+            Value::Boolean(_) => Type::Boolean,
         }
     }
 }
@@ -196,6 +254,7 @@ impl SpecialSymbol {
     }
 }
 
+#[derive(Clone, Copy, Debug)]
 pub enum Operator {
     Plus,
     Minus,

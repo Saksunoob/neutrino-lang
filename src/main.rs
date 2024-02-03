@@ -1,6 +1,6 @@
-use std::{env, fs, path::Path, process::{exit, Command, Stdio}};
+use std::{env, fs, path::Path, process::{exit, Command}};
 
-use crate::lexer::tokenize;
+use crate::{lexer::tokenize, parser::parse};
 
 mod lexer;
 mod parser;
@@ -29,8 +29,9 @@ fn main() {
     });
 
     let tokens = tokenize(&program_content);
-    
     println!("Tokens:\n{tokens}");
+    let syntax_tree = parse(tokens);
+    
 
     if compile("test.asm", "test.exe") {
         let test_status = Command::new("./test.exe")

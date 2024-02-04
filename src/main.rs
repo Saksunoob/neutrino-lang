@@ -34,7 +34,7 @@ fn main() {
     let syntax_tree = match parse(tokens) {
         Ok(syntax_tree) => syntax_tree,
         Err(err) => {
-            eprintln!("Error parsing tokens:\n{err}");
+            eprintln!("{err}");
             exit(1)
         },
     };

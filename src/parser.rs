@@ -4,12 +4,14 @@ use crate::lexer::{self, Keyword, Operator, SpecialSymbol, Token, Tokens, Type, 
 
 #[derive(Debug, Clone)]
 pub struct ParseError{
-    msg: String
+    msg: String,
+    pos: (usize, usize)
 }
 impl ParseError {
-    pub fn new(msg: String) -> Self {
+    pub fn new(msg: String, pos: (usize, usize)) -> Self {
         Self {
-            msg
+            msg,
+            pos
         }
     }
 }
@@ -17,7 +19,7 @@ impl Error for ParseError{}
 
 impl Display for ParseError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.msg)
+        write!(f, "Error compiling at {}:{}\n{}", self.pos.1, self.pos.0, self.msg)
     }
 }
 
@@ -33,7 +35,7 @@ pub fn parse(mut tokens: Tokens) -> Result<SyntaxTree, ParseError> {
                 syntax_tree.external(parse_extern(&mut tokens)?)
             },
             token => {
-                return Err(ParseError::new(format!("Unexpected token: {token}")));
+                return Err(ParseError::new(format!("Unexpected token: {token}"), tokens.get_curr_location()));
             }
         }
     }
@@ -46,7 +48,7 @@ pub fn parse_extern(tokens: &mut Tokens) -> Result<String, ParseError> {
     match tokens.next() {
         Token::Keyword(Keyword::External) => (),
         token => { // Should never run as this is checked in parse
-            return Err(ParseError::new(format!("Unexpected token: {token}")));
+            return Err(ParseError::new(format!("Unexpected token: {token}"), tokens.get_prev_location()));
         }
     };
 
@@ -54,7 +56,7 @@ pub fn parse_extern(tokens: &mut Tokens) -> Result<String, ParseError> {
     let name = match tokens.next() {
         Token::Identifier(id) => id,
         token => {
-            return Err(ParseError::new(format!("Unexpected token after extern: {token}")));
+            return Err(ParseError::new(format!("Unexpected token after extern: {token}"), tokens.get_prev_location()));
         }
     };
 
@@ -62,7 +64,7 @@ pub fn parse_extern(tokens: &mut Tokens) -> Result<String, ParseError> {
     match tokens.next() {
         Token::SpecialSymbol(SpecialSymbol::Terminator) => Ok(name),
         token => {
-            return Err(ParseError::new(format!("Unexpected token after extern: {token}")));
+            return Err(ParseError::new(format!("Unexpected token after extern: {token}"), tokens.get_prev_location()));
         }
     }
 }
@@ -102,7 +104,7 @@ pub fn parse_function(tokens: &mut Tokens) -> Result<Function, ParseError> {
     match tokens.next() {
         Token::Keyword(Keyword::Function) => (),
         token => { // Should never run as this is checked in parse
-            return Err(ParseError::new(format!("Unexpected token: {token}")));
+            return Err(ParseError::new(format!("Unexpected token: {token}"), tokens.get_prev_location()));
         }
     };
 
@@ -110,7 +112,7 @@ pub fn parse_function(tokens: &mut Tokens) -> Result<Function, ParseError> {
     let name = match tokens.next() {
         Token::Identifier(id) => id,
         token => {
-            return Err(ParseError::new(format!("Unexpected token after fn: {token}")));
+            return Err(ParseError::new(format!("Unexpected token after fn: {token}"), tokens.get_prev_location()));
         }
     };
 
@@ -127,11 +129,11 @@ pub fn parse_function(tokens: &mut Tokens) -> Result<Function, ParseError> {
                                 if let Token::Type(type_) = tokens.next() {
                                     params.push((id, type_));
                                 } else {
-                                    return Err(ParseError::new(format!("Function argument type not provided")));
+                                    return Err(ParseError::new(format!("Function argument type not provided"), tokens.get_prev_location()));
                                 }
                             },
                             token => {
-                                return Err(ParseError::new(format!("Unexpected token in function arguments: {token}")));
+                                return Err(ParseError::new(format!("Unexpected token in function arguments: {token}"), tokens.get_prev_location()));
                             }
                         }
         
@@ -139,7 +141,7 @@ pub fn parse_function(tokens: &mut Tokens) -> Result<Function, ParseError> {
                             Token::SpecialSymbol(SpecialSymbol::Comma) => (),
                             Token::SpecialSymbol(SpecialSymbol::CloseParen) => break,
                             token => {
-                                return Err(ParseError::new(format!("Unexpected token in function arguments: {token}")));
+                                return Err(ParseError::new(format!("Unexpected token in function arguments: {token}"), tokens.get_curr_location()));
                             }
                         }
                         tokens.next(); // Consume comma
@@ -151,14 +153,14 @@ pub fn parse_function(tokens: &mut Tokens) -> Result<Function, ParseError> {
             Ok(params)
         },
         token => {
-            return Err(ParseError::new(format!("Unexpected token after function name: {token}")));
+            return Err(ParseError::new(format!("Unexpected token after function name: {token}"), tokens.get_prev_location()));
         }
     }?;
 
     let return_type = match tokens.next() {
         Token::Type(type_) => Ok(type_),
         token => {
-            Err(ParseError::new(format!("Unexpected token after function paramaters: {token}")))
+            Err(ParseError::new(format!("Unexpected token after function paramaters: {token}"), tokens.get_prev_location()))
         }
     }?;
 
@@ -215,7 +217,7 @@ fn parse_closure(return_type: Type, parameters: Vec<(String, Type)>, tokens: &mu
     match tokens.next() {
         Token::SpecialSymbol(SpecialSymbol::OpenBracket) => Ok(()),
         token => {
-            Err(ParseError::new(format!("Unexpected token at the start of a closure: {token}")))
+            Err(ParseError::new(format!("Unexpected token at the start of a closure: {token}"), tokens.get_prev_location()))
         }
     }?;
 
@@ -288,14 +290,14 @@ fn parse_instruction(tokens: &mut Tokens, variables: &mut HashMap<String, Type>)
             let id = match tokens.next() {
                 Token::Identifier(id) => Ok(id),
                 token => {
-                    return Err(ParseError::new(format!("Unexpected token after let: {token}")))
+                    return Err(ParseError::new(format!("Unexpected token after let: {token}"), tokens.get_prev_location()))
                 }
             }?;
 
             match tokens.next() {
                 Token::SpecialSymbol(SpecialSymbol::Equals) => Ok(()),
                 token => {
-                    Err(ParseError::new(format!("Unexpected token after assignment variable: {token}")))
+                    Err(ParseError::new(format!("Unexpected token after assignment variable: {token}"), tokens.get_prev_location()))
                 }
             }?;
 
@@ -310,7 +312,7 @@ fn parse_instruction(tokens: &mut Tokens, variables: &mut HashMap<String, Type>)
             if variables.contains_key(&id) {
                 match tokens.next() {
                     Token::SpecialSymbol(SpecialSymbol::Equals) => (),
-                    token => return Err(ParseError::new(format!("Unexpected token after variable name: {token}")))
+                    token => return Err(ParseError::new(format!("Unexpected token after variable name: {token}"), tokens.get_prev_location()))
                 }
                 Ok(Instruction::Assignment { id, value: parse_expression(tokens, variables)? })
             } else {
@@ -318,7 +320,7 @@ fn parse_instruction(tokens: &mut Tokens, variables: &mut HashMap<String, Type>)
             }
         },
         token => {
-            Err(ParseError::new(format!("Unexpected token at the start of an instruction: {token}")))
+            Err(ParseError::new(format!("Unexpected token at the start of an instruction: {token}"), tokens.get_prev_location()))
         }
     }?;
     tokens.next();
@@ -376,14 +378,14 @@ fn parse_function_call(function: String, tokens: &mut Tokens, variables: &mut Ha
                     Token::SpecialSymbol(SpecialSymbol::Comma) => Ok(()),
                     Token::SpecialSymbol(SpecialSymbol::CloseParen) => break,
                     token => {
-                        Err(ParseError::new(format!("Unexpected token in function parameters: {token}")))
+                        Err(ParseError::new(format!("Unexpected token in function parameters: {token}"), tokens.get_prev_location()))
                     }
                 }?
             }
             Ok(params)
         }
         token => {
-            Err(ParseError::new(format!("Unexpected token after function name 1: {token}")))
+            Err(ParseError::new(format!("Unexpected token after function name 1: {token}"), tokens.get_prev_location()))
         }
     }?;
     Ok(FunctionCall::new(function, parameters))
@@ -442,7 +444,7 @@ fn parse_expression(tokens: &mut Tokens, variables: &mut HashMap<String, Type>) 
         match tokens.peek() {
             Token::SpecialSymbol(SpecialSymbol::OpenParen) => {
                 if !last_element_was_operator {
-                    return Err(ParseError::new(format!("Expected operator")));
+                    return Err(ParseError::new(format!("Expected operator"), tokens.get_curr_location()));
                 }
                 operands.push(parse_expression(tokens, variables)?);
                 last_element_was_operator = false;
@@ -456,7 +458,7 @@ fn parse_expression(tokens: &mut Tokens, variables: &mut HashMap<String, Type>) 
             },
             Token::SpecialSymbol(symbol) => {
                 if in_paretheses {
-                    return Err(ParseError::new(format!("Unexpected symbol in expression: {}", Token::SpecialSymbol(*symbol))))
+                    return Err(ParseError::new(format!("Unexpected symbol in expression: {}", Token::SpecialSymbol(*symbol)), tokens.get_curr_location()))
                 }
                 break;
             }
@@ -466,14 +468,14 @@ fn parse_expression(tokens: &mut Tokens, variables: &mut HashMap<String, Type>) 
         match tokens.next() {
             Token::Value(value) => {
                 if !last_element_was_operator {
-                    return Err(ParseError::new(format!("Expected operator")));
+                    return Err(ParseError::new(format!("Expected operator"), tokens.get_prev_location()));
                 }
                 operands.push(Expression::Value(value));
                 last_element_was_operator = false;
             },
             Token::Identifier(id) => {
                 if !last_element_was_operator {
-                    return Err(ParseError::new(format!("Expected operator")));
+                    return Err(ParseError::new(format!("Expected operator"), tokens.get_prev_location()));
                 }
                 operands.push(match tokens.peek() {
                     Token::SpecialSymbol(SpecialSymbol::OpenParen) => Expression::FunctionCall(parse_function_call(id, tokens, variables)?),
@@ -486,22 +488,22 @@ fn parse_expression(tokens: &mut Tokens, variables: &mut HashMap<String, Type>) 
             },
             Token::Operator(op) => {
                 if last_element_was_operator {
-                    return Err(ParseError::new(format!("Unexpected operator after operator")))
+                    return Err(ParseError::new(format!("Unexpected operator after operator"), tokens.get_prev_location()))
                 }
                 last_element_was_operator = true;
                 operators.push(op);
             },
             token => {
-                return Err(ParseError::new(format!("Unexpected token in expression: {token}")))
+                return Err(ParseError::new(format!("Unexpected token in expression: {token}"), tokens.get_prev_location()))
             },
         }
     };
 
     if operands.len() == 0 {
-        return Err(ParseError::new(format!("Expected operand in expression")));
+        return Err(ParseError::new(format!("Expected operand in expression"), tokens.get_curr_location()));
     }
     if operands.len() - operators.len() != 1 {
-        return Err(ParseError::new(format!("Expected one more operand in expression")));
+        return Err(ParseError::new(format!("Expected one more operand in expression"), tokens.get_curr_location()));
     }
 
     loop {

@@ -1,36 +1,45 @@
-use std::{collections::VecDeque, fmt::Display};
+use std::{collections::VecDeque, fmt::Display, ops::Index};
 
 pub fn tokenize(file: &String) -> Tokens {
     let mut chars = file.chars();
 
     let mut tokens = Tokens::new();
 
+    let mut line = 1;
+    let mut column = 0;
+
     loop {
         let mut buffer = Vec::new();
+        let buffer_start = (column+1, line);
 
         loop {
+            column += 1;
             if let Some(char) = chars.next() {
                 if SpecialSymbol::match_char(&char) || Operator::match_char(&char) {
                     if buffer.len() > 0 {
-                        tokens.push(Token::from_buffer(buffer));
+                        tokens.push(Token::from_buffer(buffer), buffer_start);
                     }
                     let token = Token::from_buffer(vec![char]);
-                    tokens.push(token);
+                    tokens.push(token, (column, line));
                     break;
                 }
                 else if char.is_ascii_whitespace() {
                     if buffer.len() > 0 {
-                        tokens.push(Token::from_buffer(buffer));
+                        tokens.push(Token::from_buffer(buffer), buffer_start);
+                    }
+                    if char == '\n' {
+                        line += 1;
+                        column = 0;
                     }
                     break;
                 }
-                buffer.push(char)
+                buffer.push(char);
 
             } else {
                 if buffer.len() > 0 {
-                    tokens.push(Token::from_buffer(buffer));
+                    tokens.push(Token::from_buffer(buffer), buffer_start);
                 }
-                tokens.push(Token::EOF);
+                tokens.push(Token::EOF, (column, line));    
                 return tokens;
             }
         }
@@ -76,26 +85,35 @@ mod tests {
 
 #[derive(PartialEq, Debug)]
 pub struct Tokens {
-    tokens: VecDeque<Token>
+    tokens: VecDeque<Token>,
+    locations: VecDeque<(usize, usize)>
 }
 impl Tokens {
     pub fn new() -> Self {
-        Tokens { tokens: VecDeque::new() }
+        Tokens { tokens: VecDeque::new(), locations: vec![(0, 0)].into() }
     }
     #[allow(dead_code)] // This function is for tests
     pub fn from_vec(tokens: Vec<Token>) -> Self {
-        Tokens { tokens: tokens.into_iter().collect() }
+        Tokens { tokens: tokens.into_iter().collect(), locations: VecDeque::new() }
     }
-    pub fn push(&mut self, token: Token) {
+    pub fn push(&mut self, token: Token, location: (usize, usize)) {
         self.tokens.push_back(token);
+        self.locations.push_back(location);
     }
     // Returns next token and consumes it, panics if no tokens remain
     pub fn next(&mut self) -> Token {
+        self.locations.pop_front();
         self.tokens.pop_front().unwrap_or(Token::EOF)
     }
     // Returns next token, panics if no tokens remain
     pub fn peek(&mut self) -> &Token {
         self.tokens.front().unwrap_or(&Token::EOF)
+    }
+    pub fn get_prev_location(&self) -> (usize, usize) {
+        *self.locations.index(0)
+    }
+    pub fn get_curr_location(&self) -> (usize, usize) {
+        *self.locations.index(1)
     }
 }
 impl Display for Tokens {

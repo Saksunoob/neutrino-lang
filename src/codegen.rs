@@ -1,4 +1,4 @@
-use std::{cmp::{max, min}, collections::HashMap, process::exit};
+use std::{cmp::min, collections::HashMap, process::exit};
 
 use crate::{lexer::Type, parser::{Closure, Expression, FunctionCall, Instruction, SyntaxTree}};
 

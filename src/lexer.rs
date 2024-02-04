@@ -53,7 +53,7 @@ mod tests {
             Token::Identifier("b".to_string()),
             Token::SpecialSymbol(SpecialSymbol::CloseParen),
             Token::SpecialSymbol(SpecialSymbol::OpenBracket),
-            Token::Keyword(Keyword::Assignment),
+            Token::Keyword(Keyword::Declaration),
             Token::Identifier("sum".to_string()),
             Token::SpecialSymbol(SpecialSymbol::Equals),
             Token::Identifier("a".to_string()),
@@ -163,7 +163,7 @@ impl Display for Token {
             Token::Keyword(keyword) => {
                 match keyword {
                     Keyword::Function => write!(f, "Function"),
-                    Keyword::Assignment => write!(f, "Assign"),
+                    Keyword::Declaration => write!(f, "Decleration"),
                     Keyword::Return => write!(f, "Return"),
                     Keyword::External => write!(f, "External"),
                 }
@@ -210,7 +210,7 @@ impl Display for Token {
 #[derive(PartialEq, Debug)]
 pub enum Keyword {
     Function,
-    Assignment,
+    Declaration,
     Return,
     External
 }
@@ -218,7 +218,7 @@ impl Keyword {
     pub fn from_string(string: &String) -> Option<Keyword> {
         match string.as_str() {
             "fn" => Some(Keyword::Function),
-            "let" => Some(Keyword::Assignment),
+            "let" => Some(Keyword::Declaration),
             "ret" => Some(Keyword::Return),
             "extern" => Some(Keyword::External),
             _ => None
@@ -233,7 +233,7 @@ mod keyword_tests {
     #[test]
     fn test_keyword_from_string() {
         assert_eq!(Keyword::from_string(&"fn".to_string()), Some(Keyword::Function));
-        assert_eq!(Keyword::from_string(&"let".to_string()), Some(Keyword::Assignment));
+        assert_eq!(Keyword::from_string(&"let".to_string()), Some(Keyword::Declaration));
         assert_eq!(Keyword::from_string(&"ret".to_string()), Some(Keyword::Return));
         assert_eq!(Keyword::from_string(&"extern".to_string()), Some(Keyword::External));
         assert_eq!(Keyword::from_string(&"invalid".to_string()), None);

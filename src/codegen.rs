@@ -158,8 +158,8 @@ fn generate_instruction(asm: &mut ASM, instruction: Instruction, variables: &mut
     match instruction {
         Instruction::Assignment { id, value } => {
             generate_expression(asm, value, variables);
-            asm.push_instr(format!("PUSH RAX"));
-            variables.new_variable(&id);
+            let addr = variables.get_var_addr(&id)*8;
+            asm.push_instr(format!("MOV [RSP+{addr}], RAX"));
         },
         Instruction::Return(expr) => {
             generate_expression(asm, expr, variables);
@@ -168,6 +168,11 @@ fn generate_instruction(asm: &mut ASM, instruction: Instruction, variables: &mut
         },
         Instruction::FunctionCall(call) => {
             generate_function_call(asm, call, variables)
+        },
+        Instruction::Decleration { id, value } => {
+            generate_expression(asm, value, variables);
+            asm.push_instr(format!("PUSH RAX"));
+            variables.new_variable(&id);
         },
     }
 }
@@ -215,21 +220,19 @@ fn generate_expression(asm: &mut ASM, expression: Expression, variables: &mut Va
 
 fn generate_function_call(asm: &mut ASM, call: FunctionCall, variables: &mut Variables) {
     // All function calls follow the Windows calling convention for x86 (https://learn.microsoft.com/en-us/cpp/build/x64-calling-convention)
-
-    let params_in_regs = min(call.parameters.len(), 4);
-
+    let params = call.parameters.len();
     for param in call.parameters.into_iter().rev() {
         generate_expression(asm, param, variables);
         asm.push_instr("PUSH RAX");
         variables.push();
     }
-    for i in 0..params_in_regs {
+    for i in 0..params {
         match i {
             0 => asm.push_instr("POP RCX"),
             1 => asm.push_instr("POP RDX"),
             2 => asm.push_instr("POP R8"),
             3 => asm.push_instr("POP R9"),
-            _ => panic!("Invalid index") // Should never run as usize is >= 0 and we have constrained it to be <= 4
+            _ => ()
         }
         variables.pop();
     }

@@ -272,7 +272,7 @@ mod parse_closure_tests {
     #[test]
     fn test_parse_instruction_invalid() {
         let mut tokens = Tokens::from_vec(vec![
-            Token::Keyword(Keyword::Assignment),
+            Token::Keyword(Keyword::Declaration),
             Token::SpecialSymbol(SpecialSymbol::CloseBracket),  // Invalid token after assignment
         ]);
         let mut variables = HashMap::new();
@@ -284,7 +284,7 @@ mod parse_closure_tests {
 
 fn parse_instruction(tokens: &mut Tokens, variables: &mut HashMap<String, Type>) -> Result<Instruction, ParseError> {
     let instruction = match tokens.next() {
-        Token::Keyword(Keyword::Assignment) => {
+        Token::Keyword(Keyword::Declaration) => {
             let id = match tokens.next() {
                 Token::Identifier(id) => Ok(id),
                 token => {
@@ -301,7 +301,7 @@ fn parse_instruction(tokens: &mut Tokens, variables: &mut HashMap<String, Type>)
 
             variables.insert(id.clone(), Type::Void);
 
-            Ok(Instruction::Assignment { id, value: parse_expression(tokens, variables)? })
+            Ok(Instruction::Decleration { id, value: parse_expression(tokens, variables)? })
         },
         Token::Keyword(Keyword::Return) => {
             Ok(Instruction::Return(parse_expression(tokens, variables)?))
@@ -624,6 +624,10 @@ pub struct Function {
 
 #[derive(Debug, PartialEq)]
 pub enum Instruction {
+    Decleration {
+        id: String,
+        value: Expression
+    },
     Assignment {
         id: String,
         value: Expression
@@ -631,6 +635,8 @@ pub enum Instruction {
     Return(Expression),
     FunctionCall(FunctionCall),
 }
+
+
 
 #[derive(Debug, PartialEq)]
 pub enum Expression {

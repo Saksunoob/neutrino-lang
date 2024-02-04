@@ -230,6 +230,7 @@ impl Value {
     }
 }
 
+#[derive(Clone, Copy)]
 pub enum SpecialSymbol {
     Equals,
     Terminator,

@@ -87,6 +87,12 @@ impl Variables {
     pub fn push(&mut self) {
         self.stack_pointer += 1;
     }
+    pub fn close_scopes_to(&mut self, depth: usize, asm: &mut ASM) {
+        let scopes = self.scopes.drain(depth..);
+        let variable_amount: usize = scopes.map(|scope| scope.len()).sum();
+        self.stack_pointer -= variable_amount;
+        asm.push_instr(format!("ADD RSP, {}", variable_amount*8));
+    }
 }
 
 pub fn generate(syntax_tree: SyntaxTree) -> String {
@@ -109,9 +115,17 @@ pub fn generate(syntax_tree: SyntaxTree) -> String {
 
 fn generate_closure(asm: &mut ASM, closure: Closure, variables: &mut Variables) {
     variables.new_scope();
-    for i in max(5, closure.parameters.len())..5 {
+    for i in (4..max(4, closure.parameters.len())).rev() {
         variables.new_variable(&closure.parameters[i].0);
     }
+    // Get rid of padding
+    asm.push_instr("POP RAX");
+    asm.push_instr("ADD RSP, 32");
+    asm.push_instr("PUSH RAX");
+    variables.push();
+
+    variables.new_scope();
+
     for i in 0..min(closure.parameters.len(), 4) {
         match i {
             0 => asm.push_instr("PUSH RCX"),
@@ -139,10 +153,7 @@ fn generate_instruction(asm: &mut ASM, instruction: Instruction, variables: &mut
         },
         Instruction::Return(expr) => {
             generate_expression(asm, expr, variables);
-            asm.push_instr(format!("ADD RSP, {}", variables.stack_pointer*8));
-            asm.push_instr("POP RBX");
-            asm.push_instr("ADD RSP, 32");
-            asm.push_instr("PUSH RBX");
+            variables.close_scopes_to(1, asm);
             asm.push_instr("RET");
         },
         Instruction::FunctionCall(call) => {

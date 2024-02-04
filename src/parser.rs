@@ -255,9 +255,9 @@ fn parse_expression(tokens: &mut Tokens, variables: &mut HashMap<String, Type>) 
                 }
                 Ok(())
             },
-            Token::SpecialSymbol(SpecialSymbol::Terminator) => {
+            Token::SpecialSymbol(symbol) => {
                 if in_paretheses {
-                    return Err(ParseError::new(format!("Unexpected terminator")))
+                    return Err(ParseError::new(format!("Unexpected symbol in expression: {}", Token::SpecialSymbol(*symbol))))
                 }
                 break;
             }

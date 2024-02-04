@@ -37,6 +37,43 @@ pub fn tokenize(file: &String) -> Tokens {
     }
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_tokenize() {
+        let input = "fn calculate(a, b) { let sum = a + b; ret sum * 2; }".to_string();
+        let mut expected_tokens = Tokens::new();
+        expected_tokens.push(Token::Keyword(Keyword::Function));
+        expected_tokens.push(Token::Identifier("calculate".to_string()));
+        expected_tokens.push(Token::SpecialSymbol(SpecialSymbol::OpenParen));
+        expected_tokens.push(Token::Identifier("a".to_string()));
+        expected_tokens.push(Token::SpecialSymbol(SpecialSymbol::Comma));
+        expected_tokens.push(Token::Identifier("b".to_string()));
+        expected_tokens.push(Token::SpecialSymbol(SpecialSymbol::CloseParen));
+        expected_tokens.push(Token::SpecialSymbol(SpecialSymbol::OpenBracket));
+        expected_tokens.push(Token::Keyword(Keyword::Assignment));
+        expected_tokens.push(Token::Identifier("sum".to_string()));
+        expected_tokens.push(Token::SpecialSymbol(SpecialSymbol::Equals));
+        expected_tokens.push(Token::Identifier("a".to_string()));
+        expected_tokens.push(Token::Operator(Operator::Plus));
+        expected_tokens.push(Token::Identifier("b".to_string()));
+        expected_tokens.push(Token::SpecialSymbol(SpecialSymbol::Terminator));
+        expected_tokens.push(Token::Keyword(Keyword::Return));
+        expected_tokens.push(Token::Identifier("sum".to_string()));
+        expected_tokens.push(Token::Operator(Operator::Multiply));
+        expected_tokens.push(Token::Value(Value::Integer(2)));
+        expected_tokens.push(Token::SpecialSymbol(SpecialSymbol::Terminator));
+        expected_tokens.push(Token::SpecialSymbol(SpecialSymbol::CloseBracket));
+        expected_tokens.push(Token::EOF);
+
+        let result_tokens = tokenize(&input);
+        assert_eq!(result_tokens, expected_tokens);
+    }
+}
+
+#[derive(PartialEq, Debug)]
 pub struct Tokens {
     tokens: VecDeque<Token>
 }
@@ -79,6 +116,7 @@ impl Display for Tokens {
     }
 }
 
+#[derive(PartialEq, Debug)]
 pub enum Token {
     EOF,
     Keyword(Keyword),
@@ -164,6 +202,7 @@ impl Display for Token {
 }
 
 
+#[derive(PartialEq, Debug)]
 pub enum Keyword {
     Function,
     Assignment,
@@ -182,7 +221,21 @@ impl Keyword {
     }
 }
 
-#[derive(Clone, Copy, Debug)]
+#[cfg(test)]
+mod keyword_tests {
+    use super::*;
+
+    #[test]
+    fn test_keyword_from_string() {
+        assert_eq!(Keyword::from_string(&"fn".to_string()), Some(Keyword::Function));
+        assert_eq!(Keyword::from_string(&"let".to_string()), Some(Keyword::Assignment));
+        assert_eq!(Keyword::from_string(&"ret".to_string()), Some(Keyword::Return));
+        assert_eq!(Keyword::from_string(&"extern".to_string()), Some(Keyword::External));
+        assert_eq!(Keyword::from_string(&"invalid".to_string()), None);
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub enum Type {
     Void,
     Integer,
@@ -201,7 +254,22 @@ impl Type {
     }
 }
 
-#[derive(Debug)]
+#[cfg(test)]
+mod type_tests {
+    use super::*;
+
+    #[test]
+    fn test_type_from_string() {
+        assert_eq!(Type::from_string(&"void".to_string()), Some(Type::Void));
+        assert_eq!(Type::from_string(&"int".to_string()), Some(Type::Integer));
+        assert_eq!(Type::from_string(&"float".to_string()), Some(Type::Float));
+        assert_eq!(Type::from_string(&"bool".to_string()), Some(Type::Boolean));
+        assert_eq!(Type::from_string(&"invalid".to_string()), None);
+    }
+}
+
+
+#[derive(Debug, PartialEq)]
 pub enum Value {
     Integer(i64),
     Float(f64),
@@ -230,7 +298,28 @@ impl Value {
     }
 }
 
-#[derive(Clone, Copy)]
+#[cfg(test)]
+mod value_tests {
+    use super::*;
+
+    #[test]
+    fn test_value_from_string() {
+        assert_eq!(Value::from_string(&"123".to_string()), Some(Value::Integer(123)));
+        assert_eq!(Value::from_string(&"123.456".to_string()), Some(Value::Float(123.456)));
+        assert_eq!(Value::from_string(&"true".to_string()), Some(Value::Boolean(true)));
+        assert_eq!(Value::from_string(&"false".to_string()), Some(Value::Boolean(false)));
+        assert_eq!(Value::from_string(&"invalid".to_string()), None);
+    }
+
+    #[test]
+    fn test_value_get_type() {
+        assert_eq!(Value::Integer(123).get_type(), Type::Integer);
+        assert_eq!(Value::Float(123.456).get_type(), Type::Float);
+        assert_eq!(Value::Boolean(true).get_type(), Type::Boolean);
+    }
+}
+
+#[derive(Clone, Copy, PartialEq, Debug)]
 pub enum SpecialSymbol {
     Equals,
     Terminator,
@@ -258,7 +347,36 @@ impl SpecialSymbol {
     }
 }
 
-#[derive(Clone, Copy, Debug)]
+#[cfg(test)]
+mod special_symbol_tests {
+    use super::*;
+
+    #[test]
+    fn test_special_symbol_from_string() {
+        assert_eq!(SpecialSymbol::from_string(&"=".to_string()), Some(SpecialSymbol::Equals));
+        assert_eq!(SpecialSymbol::from_string(&";".to_string()), Some(SpecialSymbol::Terminator));
+        assert_eq!(SpecialSymbol::from_string(&"(".to_string()), Some(SpecialSymbol::OpenParen));
+        assert_eq!(SpecialSymbol::from_string(&")".to_string()), Some(SpecialSymbol::CloseParen));
+        assert_eq!(SpecialSymbol::from_string(&"{".to_string()), Some(SpecialSymbol::OpenBracket));
+        assert_eq!(SpecialSymbol::from_string(&"}".to_string()), Some(SpecialSymbol::CloseBracket));
+        assert_eq!(SpecialSymbol::from_string(&",".to_string()), Some(SpecialSymbol::Comma));
+        assert_eq!(SpecialSymbol::from_string(&"invalid".to_string()), None);
+    }
+
+    #[test]
+    fn test_special_symbol_match_char() {
+        assert_eq!(SpecialSymbol::match_char(&'='), true);
+        assert_eq!(SpecialSymbol::match_char(&';'), true);
+        assert_eq!(SpecialSymbol::match_char(&'('), true);
+        assert_eq!(SpecialSymbol::match_char(&')'), true);
+        assert_eq!(SpecialSymbol::match_char(&'{'), true);
+        assert_eq!(SpecialSymbol::match_char(&'}'), true);
+        assert_eq!(SpecialSymbol::match_char(&','), true);
+        assert_eq!(SpecialSymbol::match_char(&'a'), false);
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub enum Operator {
     Plus,
     Minus,
@@ -277,5 +395,28 @@ impl Operator {
     }
     pub fn match_char(char: &char) -> bool {
         Self::from_string(&char.to_string()).is_some()
+    }
+}
+
+#[cfg(test)]
+mod operator_tests {
+    use super::*;
+
+    #[test]
+    fn test_operator_from_string() {
+        assert_eq!(Operator::from_string(&"+".to_string()), Some(Operator::Plus));
+        assert_eq!(Operator::from_string(&"-".to_string()), Some(Operator::Minus));
+        assert_eq!(Operator::from_string(&"*".to_string()), Some(Operator::Multiply));
+        assert_eq!(Operator::from_string(&"/".to_string()), Some(Operator::Divide));
+        assert_eq!(Operator::from_string(&"invalid".to_string()), None);
+    }
+
+    #[test]
+    fn test_operator_match_char() {
+        assert_eq!(Operator::match_char(&'+'), true);
+        assert_eq!(Operator::match_char(&'-'), true);
+        assert_eq!(Operator::match_char(&'*'), true);
+        assert_eq!(Operator::match_char(&'/'), true);
+        assert_eq!(Operator::match_char(&'a'), false);
     }
 }

@@ -44,29 +44,30 @@ mod tests {
     #[test]
     fn test_tokenize() {
         let input = "fn calculate(a, b) { let sum = a + b; ret sum * 2; }".to_string();
-        let mut expected_tokens = Tokens::new();
-        expected_tokens.push(Token::Keyword(Keyword::Function));
-        expected_tokens.push(Token::Identifier("calculate".to_string()));
-        expected_tokens.push(Token::SpecialSymbol(SpecialSymbol::OpenParen));
-        expected_tokens.push(Token::Identifier("a".to_string()));
-        expected_tokens.push(Token::SpecialSymbol(SpecialSymbol::Comma));
-        expected_tokens.push(Token::Identifier("b".to_string()));
-        expected_tokens.push(Token::SpecialSymbol(SpecialSymbol::CloseParen));
-        expected_tokens.push(Token::SpecialSymbol(SpecialSymbol::OpenBracket));
-        expected_tokens.push(Token::Keyword(Keyword::Assignment));
-        expected_tokens.push(Token::Identifier("sum".to_string()));
-        expected_tokens.push(Token::SpecialSymbol(SpecialSymbol::Equals));
-        expected_tokens.push(Token::Identifier("a".to_string()));
-        expected_tokens.push(Token::Operator(Operator::Plus));
-        expected_tokens.push(Token::Identifier("b".to_string()));
-        expected_tokens.push(Token::SpecialSymbol(SpecialSymbol::Terminator));
-        expected_tokens.push(Token::Keyword(Keyword::Return));
-        expected_tokens.push(Token::Identifier("sum".to_string()));
-        expected_tokens.push(Token::Operator(Operator::Multiply));
-        expected_tokens.push(Token::Value(Value::Integer(2)));
-        expected_tokens.push(Token::SpecialSymbol(SpecialSymbol::Terminator));
-        expected_tokens.push(Token::SpecialSymbol(SpecialSymbol::CloseBracket));
-        expected_tokens.push(Token::EOF);
+        let expected_tokens = Tokens::from_vec(vec![
+            Token::Keyword(Keyword::Function),
+            Token::Identifier("calculate".to_string()),
+            Token::SpecialSymbol(SpecialSymbol::OpenParen),
+            Token::Identifier("a".to_string()),
+            Token::SpecialSymbol(SpecialSymbol::Comma),
+            Token::Identifier("b".to_string()),
+            Token::SpecialSymbol(SpecialSymbol::CloseParen),
+            Token::SpecialSymbol(SpecialSymbol::OpenBracket),
+            Token::Keyword(Keyword::Assignment),
+            Token::Identifier("sum".to_string()),
+            Token::SpecialSymbol(SpecialSymbol::Equals),
+            Token::Identifier("a".to_string()),
+            Token::Operator(Operator::Plus),
+            Token::Identifier("b".to_string()),
+            Token::SpecialSymbol(SpecialSymbol::Terminator),
+            Token::Keyword(Keyword::Return),
+            Token::Identifier("sum".to_string()),
+            Token::Operator(Operator::Multiply),
+            Token::Value(Value::Integer(2)),
+            Token::SpecialSymbol(SpecialSymbol::Terminator),
+            Token::SpecialSymbol(SpecialSymbol::CloseBracket),
+            Token::EOF
+        ]);
 
         let result_tokens = tokenize(&input);
         assert_eq!(result_tokens, expected_tokens);
@@ -80,6 +81,9 @@ pub struct Tokens {
 impl Tokens {
     pub fn new() -> Self {
         Tokens { tokens: VecDeque::new() }
+    }
+    pub fn from_vec(tokens: Vec<Token>) -> Self {
+        Tokens { tokens: tokens.into_iter().collect() }
     }
     pub fn push(&mut self, token: Token) {
         self.tokens.push_back(token);

@@ -1,4 +1,4 @@
-use std::{collections::HashMap, process::exit};
+use std::{cmp::min, collections::HashMap, process::exit};
 
 use crate::parser::{Closure, Expression, FunctionCall, Instruction, SyntaxTree};
 
@@ -76,8 +76,16 @@ impl Variables {
     pub fn pop(&mut self) {
         let last = self.scopes.last_mut().unwrap();
 
-        let var = last.iter().find(|(_, pointer)| **pointer == self.stack_pointer).unwrap().0.clone();
-        last.remove(&var);
+        let var = last.iter().find(|(_, pointer)| **pointer == self.stack_pointer);
+        if var.is_some() {
+            let var = var.unwrap().0.clone();
+            last.remove(&var);
+        }
+
+        self.stack_pointer -= 1;
+    }
+    pub fn push(&mut self) {
+        self.stack_pointer += 1;
     }
 }
 
@@ -147,8 +155,7 @@ fn generate_expression(asm: &mut ASM, expression: Expression, variables: &mut Va
         Expression::MathOpearation { lhv, rhv, operator } => {
             generate_expression(asm, *rhv, variables);
             asm.push_instr("push rax");
-            let temp_name = format!("-temp_{}", variables.stack_pointer);
-            variables.new_variable(&temp_name);
+            variables.push();
             
             generate_expression(asm, *lhv, variables);
             asm.push_instr("pop rbx");
@@ -172,5 +179,28 @@ fn generate_expression(asm: &mut ASM, expression: Expression, variables: &mut Va
 }
 
 fn generate_function_call(asm: &mut ASM, call: FunctionCall, variables: &mut Variables) {
+    // All function calls follow the Windows calling convention for x86 (https://learn.microsoft.com/en-us/cpp/build/x64-calling-convention)
 
+    let params_in_regs = min(call.parameters.len(), 4);
+
+    asm.push_instr("push rbp");
+    asm.push_instr("mov rbp, rsp");
+
+    for param in call.parameters.into_iter().rev() {
+        generate_expression(asm, param, variables);
+        asm.push_instr("push rax");
+        variables.push();
+    }
+    for i in 0..params_in_regs {
+        match i {
+            0 => asm.push_instr("pop rcx"),
+            1 => asm.push_instr("pop rdx"),
+            2 => asm.push_instr("pop r8x"),
+            3 => asm.push_instr("pop r9x"),
+            _ => panic!("Invalid index") // Should never run as usize is >= 0 and we have constrained it to be <= 4
+        }
+        variables.pop();
+    }
+    asm.push_instr("sub rsp, 32");
+    asm.push_instr(format!("call {}", call.function));
 }

@@ -83,7 +83,7 @@ mod tests {
     }
 }
 
-#[derive(PartialEq, Debug)]
+#[derive(Debug)]
 pub struct Tokens {
     tokens: VecDeque<Token>,
     locations: VecDeque<(usize, usize)>
@@ -110,10 +110,10 @@ impl Tokens {
         self.tokens.front().unwrap_or(&Token::EOF)
     }
     pub fn get_prev_location(&self) -> (usize, usize) {
-        *self.locations.index(0)
+        self.locations.get(0).copied().unwrap_or((0, 0))
     }
     pub fn get_curr_location(&self) -> (usize, usize) {
-        *self.locations.index(1)
+        self.locations.get(1).copied().unwrap_or((0, 0))
     }
 }
 impl Display for Tokens {
@@ -136,6 +136,12 @@ impl Display for Tokens {
         });
 
         write!(f, "{}", lines.iter().map(|line| format!("=> {}", line.join(" "))).collect::<Vec<String>>().join("\n"))
+    }
+}
+
+impl PartialEq for Tokens {
+    fn eq(&self, other: &Self) -> bool {
+        self.tokens == other.tokens
     }
 }
 

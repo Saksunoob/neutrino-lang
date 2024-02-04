@@ -82,6 +82,7 @@ impl Tokens {
     pub fn new() -> Self {
         Tokens { tokens: VecDeque::new() }
     }
+    #[allow(dead_code)] // This function is for tests
     pub fn from_vec(tokens: Vec<Token>) -> Self {
         Tokens { tokens: tokens.into_iter().collect() }
     }

@@ -641,7 +641,6 @@ pub enum Expression {
         rhv: Box<Expression>,
         operator: Operator
     },
-    Closure(Closure),
     FunctionCall(FunctionCall)
 }
 

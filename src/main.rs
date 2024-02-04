@@ -40,7 +40,7 @@ fn main() {
     };
     let asm = generate(syntax_tree);
 
-    fs::write("output.asm", asm);
+    let _ = fs::write("output.asm", asm);
 
     if compile("output.asm", "output.exe") {
         let test_status = Command::new("./output.exe")

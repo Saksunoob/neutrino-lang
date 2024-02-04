@@ -1,6 +1,6 @@
 use std::{cmp::{max, min}, collections::HashMap, process::exit};
 
-use crate::parser::{Closure, Expression, FunctionCall, Instruction, SyntaxTree};
+use crate::{lexer::Type, parser::{Closure, Expression, FunctionCall, Instruction, SyntaxTree}};
 
 struct ASM {
     externs: Vec<String>,
@@ -46,10 +46,40 @@ impl ASM {
 struct Variables {
     scopes: Vec<HashMap<String, usize>>,
     stack_pointer: usize,
+    function_arguments: usize
 }
 impl Variables {
-    pub fn new() -> Self {
-        Variables { scopes: Vec::new(), stack_pointer: 0 }
+    pub fn new(input_parameters: Vec<(String, Type)>, asm: &mut ASM) -> Self {
+        let function_arguments = if input_parameters.len() > 4 {input_parameters.len()-4} else {0};
+        let mut call_scope = HashMap::new();
+
+        let mut stack_pointer = 0;
+
+        for i in (4..input_parameters.len()).rev() {
+            stack_pointer += 1;
+            call_scope.insert(input_parameters[i].0.clone(), stack_pointer);
+        }
+
+        asm.push_instr("POP RAX"); // Pop return address
+        asm.push_instr("ADD RSP, 32"); // Remove padding by Windows call convention
+        asm.push_instr("PUSH RAX"); // Push return address
+
+        stack_pointer += 1; // Account for return address
+
+        let mut param_scope = HashMap::new();
+
+        for i in 0..min(input_parameters.len(), 4) {
+            match i {
+                0 => asm.push_instr("PUSH RCX"),
+                1 => asm.push_instr("PUSH RDX"),
+                2 => asm.push_instr("PUSH R8"),
+                3 => asm.push_instr("PUSH R9"),
+                _ => panic!("Invalid index") // Should never run as usize is >= 0 and we have constrained it to be <= 4
+            }
+            stack_pointer += 1;
+            param_scope.insert(input_parameters[i].0.clone(), stack_pointer);
+        }
+        Variables { scopes: vec![call_scope, param_scope], stack_pointer, function_arguments }
     }
     pub fn new_scope(&mut self) {
         self.scopes.push(HashMap::new())
@@ -105,41 +135,21 @@ pub fn generate(syntax_tree: SyntaxTree) -> String {
     for function in syntax_tree.functions {
         asm.new_function(&function.name);
 
-        let mut variables = Variables::new();
-
-        generate_closure(&mut asm, function.closure, &mut variables);
+        generate_function(&mut asm, function.closure);
     }
 
     asm.build()
 }
 
-fn generate_closure(asm: &mut ASM, closure: Closure, variables: &mut Variables) {
-    variables.new_scope();
-    for i in (4..max(4, closure.parameters.len())).rev() {
-        variables.new_variable(&closure.parameters[i].0);
-    }
-    // Get rid of padding
-    asm.push_instr("POP RAX");
-    asm.push_instr("ADD RSP, 32");
-    asm.push_instr("PUSH RAX");
-    variables.push();
+fn generate_function(asm: &mut ASM, closure: Closure) {
+
+    let mut variables = Variables::new(closure.parameters, asm);
 
     variables.new_scope();
-
-    for i in 0..min(closure.parameters.len(), 4) {
-        match i {
-            0 => asm.push_instr("PUSH RCX"),
-            1 => asm.push_instr("PUSH RDX"),
-            2 => asm.push_instr("PUSH R8"),
-            3 => asm.push_instr("PUSH R9"),
-            _ => panic!("Invalid index") // Should never run as usize is >= 0 and we have constrained it to be <= 4
-        }
-        variables.new_variable(&closure.parameters[i].0);
-    }
     
-
+    // Generate instructions
     for instruction in closure.instructions {
-        generate_instruction(asm, instruction, variables)
+        generate_instruction(asm, instruction, &mut variables)
     }
     variables.close_scope(asm);
 }
@@ -154,7 +164,7 @@ fn generate_instruction(asm: &mut ASM, instruction: Instruction, variables: &mut
         Instruction::Return(expr) => {
             generate_expression(asm, expr, variables);
             variables.close_scopes_to(1, asm);
-            asm.push_instr("RET");
+            asm.push_instr(format!("RET {}", variables.function_arguments*8));
         },
         Instruction::FunctionCall(call) => {
             generate_function_call(asm, call, variables)
@@ -197,7 +207,6 @@ fn generate_expression(asm: &mut ASM, expression: Expression, variables: &mut Va
                 },
             }
         },
-        Expression::Closure(closure) => generate_closure(asm, closure, variables),
         Expression::FunctionCall(call) => {
             generate_function_call(asm, call, variables)
         },

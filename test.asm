@@ -13,7 +13,6 @@ section .text
 print:
     push    rbp         ; Push base pointer to stack
     mov     rbp, rsp    ; Move stack pointer to base pointer
-    sub     rsp, 24     ; Leave 3 bytes of nulls
 
     mov     [buffer], rcx ; Move first argument to buffer
 
@@ -27,6 +26,8 @@ print:
     mov     r8, 8       ; Write 8 bytes (max)
     mov     r9, 0       ; Required to be 0
     push    0           ; Required to be 0
+
+    sub     rsp, 32     ; Leave 4 bytes of nulls
 
     call WriteFile      ; Print
 

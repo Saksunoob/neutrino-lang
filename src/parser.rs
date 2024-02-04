@@ -29,6 +29,9 @@ pub fn parse(mut tokens: Tokens) -> Result<SyntaxTree, ParseError> {
             lexer::Token::Keyword(lexer::Keyword::Function) => {
                 syntax_tree.push(parse_function(&mut tokens)?)
             },
+            lexer::Token::Keyword(lexer::Keyword::External) => {
+                syntax_tree.external(parse_extern(&mut tokens)?)
+            },
             token => {
                 return Err(ParseError::new(format!("Unexpected token: {token}")));
             }
@@ -36,6 +39,32 @@ pub fn parse(mut tokens: Tokens) -> Result<SyntaxTree, ParseError> {
     }
 
     return Ok(syntax_tree)
+}
+
+pub fn parse_extern(tokens: &mut Tokens) -> Result<String, ParseError> {
+    // Consume External token
+    match tokens.next() {
+        Token::Keyword(Keyword::External) => (),
+        token => { // Should never run as this is checked in parse
+            return Err(ParseError::new(format!("Unexpected token: {token}")));
+        }
+    };
+
+    // Get external module name
+    let name = match tokens.next() {
+        Token::Identifier(id) => id,
+        token => {
+            return Err(ParseError::new(format!("Unexpected token after extern: {token}")));
+        }
+    };
+
+    // Consume terminator
+    match tokens.next() {
+        Token::SpecialSymbol(SpecialSymbol::Terminator) => Ok(name),
+        token => {
+            return Err(ParseError::new(format!("Unexpected token after extern: {token}")));
+        }
+    }
 }
 
 pub fn parse_function(tokens: &mut Tokens) -> Result<Function, ParseError> {
@@ -55,31 +84,42 @@ pub fn parse_function(tokens: &mut Tokens) -> Result<Function, ParseError> {
         }
     };
 
-    // Get function parameters
+    // Get function arguments
     let parameters = match tokens.next() {
         Token::SpecialSymbol(SpecialSymbol::OpenParen) => {
             let mut params = Vec::new();
-            loop {
-                match tokens.next() {
-                    Token::Identifier(id) => {
-                        if let Token::Type(type_) = tokens.next() {
-                            params.push((id, type_));
-                        }
+            match tokens.peek() {
+                Token::SpecialSymbol(SpecialSymbol::CloseParen) => (), // No arguments
+                _ => {
+                    loop {
                         match tokens.next() {
-                            Token::SpecialSymbol(SpecialSymbol::Comma) => (),
+                            Token::Identifier(id) => {
+                                if let Token::Type(type_) = tokens.next() {
+                                    params.push((id, type_));
+                                } else {
+                                    return Err(ParseError::new(format!("Function argument type not provided")));
+                                }
+                            },
                             token => {
-                                return Err(ParseError::new(format!("Unexpected token in function parameters: {token}")));
+                                return Err(ParseError::new(format!("Unexpected token in function arguments: {token}")));
                             }
                         }
-                    },
-                    Token::SpecialSymbol(SpecialSymbol::CloseParen) => break,
-                    token => {
-                        return Err(ParseError::new(format!("Unexpected token in function parameters: {token}")));
+        
+                        match tokens.peek() {
+                            Token::SpecialSymbol(SpecialSymbol::Comma) => (),
+                            Token::SpecialSymbol(SpecialSymbol::CloseParen) => break,
+                            token => {
+                                return Err(ParseError::new(format!("Unexpected token in function arguments: {token}")));
+                            }
+                        }
+                        tokens.next(); // Consume comma
                     }
                 }
             }
+            
+            tokens.next(); // Consume Close parentheses
             Ok(params)
-        }
+        },
         token => {
             return Err(ParseError::new(format!("Unexpected token after function name: {token}")));
         }
@@ -141,6 +181,8 @@ fn parse_instruction(tokens: &mut Tokens, variables: &mut HashMap<String, Type>)
                 }
             }?;
 
+            variables.insert(id.clone(), Type::Void);
+
             Ok(Instruction::Assignment { id, value: parse_expression(tokens, variables)? })
         },
         Token::Keyword(Keyword::Return) => {
@@ -148,6 +190,10 @@ fn parse_instruction(tokens: &mut Tokens, variables: &mut HashMap<String, Type>)
         },
         Token::Identifier(id) => {
             if variables.contains_key(&id) {
+                match tokens.next() {
+                    Token::SpecialSymbol(SpecialSymbol::Equals) => (),
+                    token => return Err(ParseError::new(format!("Unexpected token after variable name: {token}")))
+                }
                 Ok(Instruction::Assignment { id, value: parse_expression(tokens, variables)? })
             } else {
                 Ok(Instruction::FunctionCall(parse_function_call(id, tokens, variables)?))
@@ -179,7 +225,7 @@ fn parse_function_call(function: String, tokens: &mut Tokens, variables: &mut Ha
             Ok(params)
         }
         token => {
-            Err(ParseError::new(format!("Unexpected token after function name: {token}")))
+            Err(ParseError::new(format!("Unexpected token after function name 1: {token}")))
         }
     }?;
     Ok(FunctionCall::new(function, parameters))
@@ -203,6 +249,12 @@ fn parse_expression(tokens: &mut Tokens, variables: &mut HashMap<String, Type>) 
                 last_element_was_operator = false;
                 continue;
             },
+            Token::SpecialSymbol(SpecialSymbol::CloseParen) => {
+                if !in_paretheses {
+                    break;
+                }
+                Ok(())
+            },
             Token::SpecialSymbol(SpecialSymbol::Terminator) => {
                 if in_paretheses {
                     return Err(ParseError::new(format!("Unexpected terminator")))
@@ -224,11 +276,7 @@ fn parse_expression(tokens: &mut Tokens, variables: &mut HashMap<String, Type>) 
                 last_element_was_operator = false;
             },
             Token::SpecialSymbol(SpecialSymbol::CloseParen) => {
-                if in_paretheses {
-                    break;
-                } else {
-                    return Err(ParseError::new(format!("Unexpected closed paretheses")))
-                }
+                break; // Checked earlier that we are in paretheses
             },
             Token::Operator(op) => {
                 if last_element_was_operator {
@@ -291,16 +339,21 @@ fn parse_expression(tokens: &mut Tokens, variables: &mut HashMap<String, Type>) 
 
 #[derive(Debug)]
 pub struct SyntaxTree {
+    pub externs: Vec<String>,
     pub functions: Vec<Function>
 }
 impl SyntaxTree {
     pub fn new() -> Self {
         Self {
+            externs: Vec::new(),
             functions: Vec::new()
         }
     }
     pub fn push(&mut self, function: Function) {
         self.functions.push(function);
+    }
+    pub fn external(&mut self, external: String) {
+        self.externs.push(external);
     }
 }
 

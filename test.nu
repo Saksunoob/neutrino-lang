@@ -1,5 +1,12 @@
-fn main () void {
+extern ExitProcess;
+
+fn main() void {
     let x = 8;
-    let y = x/2;
-    ret y;
+    x = addone(x);
+    x = addone(x);
+    ExitProcess(x/2);
+}
+
+fn addone(number int) int {
+    ret number+1;
 }

@@ -1,4 +1,4 @@
-use std::{cmp::min, collections::HashMap, process::exit};
+use std::{cmp::{max, min}, collections::HashMap, process::exit};
 
 use crate::parser::{Closure, Expression, FunctionCall, Instruction, SyntaxTree};
 
@@ -58,7 +58,7 @@ impl Variables {
         let vars = self.scopes.pop().unwrap();
         self.stack_pointer -= vars.len();
 
-        asm.push_instr(format!("add rsp, {}", vars.len()*8));
+        asm.push_instr(format!("ADD RSP, {}", vars.len()*8));
     }
     pub fn new_variable(&mut self, name: &String) {
         self.stack_pointer += 1;
@@ -91,7 +91,10 @@ impl Variables {
 
 pub fn generate(syntax_tree: SyntaxTree) -> String {
     let mut asm = ASM::new();
-    asm.externs.push("ExitProcess".to_string());
+    
+    for external in syntax_tree.externs {
+        asm.externs.push(external);
+    }
 
     for function in syntax_tree.functions {
         asm.new_function(&function.name);
@@ -106,8 +109,18 @@ pub fn generate(syntax_tree: SyntaxTree) -> String {
 
 fn generate_closure(asm: &mut ASM, closure: Closure, variables: &mut Variables) {
     variables.new_scope();
-    for parameter in closure.parameters {
-        variables.new_variable(&parameter.0);
+    for i in max(5, closure.parameters.len())..5 {
+        variables.new_variable(&closure.parameters[i].0);
+    }
+    for i in 0..min(closure.parameters.len(), 4) {
+        match i {
+            0 => asm.push_instr("PUSH RCX"),
+            1 => asm.push_instr("PUSH RDX"),
+            2 => asm.push_instr("PUSH R8"),
+            3 => asm.push_instr("PUSH R9"),
+            _ => panic!("Invalid index") // Should never run as usize is >= 0 and we have constrained it to be <= 4
+        }
+        variables.new_variable(&closure.parameters[i].0);
     }
     
 
@@ -121,14 +134,16 @@ fn generate_instruction(asm: &mut ASM, instruction: Instruction, variables: &mut
     match instruction {
         Instruction::Assignment { id, value } => {
             generate_expression(asm, value, variables);
-            asm.push_instr(format!("push rax"));
+            asm.push_instr(format!("PUSH RAX"));
             variables.new_variable(&id);
         },
         Instruction::Return(expr) => {
             generate_expression(asm, expr, variables);
-            // Temporary to check if the assembly is correct
-            asm.push_instr("mov rcx, rax");
-            asm.push_instr("call ExitProcess");
+            asm.push_instr(format!("ADD RSP, {}", variables.stack_pointer*8));
+            asm.push_instr("POP RBX");
+            asm.push_instr("ADD RSP, 32");
+            asm.push_instr("PUSH RBX");
+            asm.push_instr("RET");
         },
         Instruction::FunctionCall(call) => {
             generate_function_call(asm, call, variables)
@@ -141,33 +156,33 @@ fn generate_expression(asm: &mut ASM, expression: Expression, variables: &mut Va
         Expression::Value(value) => {
             match value {
                 crate::lexer::Value::Integer(i) => {
-                    asm.push_instr(format!("mov rax, {i}"));
+                    asm.push_instr(format!("MOV RAX, {i}"));
                 },
                 crate::lexer::Value::Boolean(b) => {
-                    asm.push_instr(format!("mov rax, {}", b as i32));
+                    asm.push_instr(format!("MOV RAX, {}", b as i32));
                 },
                 crate::lexer::Value::Float(_) => todo!(),
             }
         },
         Expression::Variable(var) => {
-            asm.push_instr(format!("mov rax, [rsp+{}]", variables.get_var_addr(&var)));
+            asm.push_instr(format!("MOV RAX, [RSP+{}]", variables.get_var_addr(&var)));
         },
         Expression::MathOpearation { lhv, rhv, operator } => {
             generate_expression(asm, *rhv, variables);
-            asm.push_instr("push rax");
+            asm.push_instr("PUSH RAX");
             variables.push();
             
             generate_expression(asm, *lhv, variables);
-            asm.push_instr("pop rbx");
+            asm.push_instr("POP RBX");
             variables.pop();
 
             match operator {
-                crate::lexer::Operator::Plus => asm.push_instr("add rax, rbx"),
-                crate::lexer::Operator::Minus => asm.push_instr("sub rax, rbx"),
-                crate::lexer::Operator::Multiply => asm.push_instr("imul rax, rbx"),
+                crate::lexer::Operator::Plus => asm.push_instr("ADD RAX, RBX"),
+                crate::lexer::Operator::Minus => asm.push_instr("SUB RAX, RBX"),
+                crate::lexer::Operator::Multiply => asm.push_instr("IMUL RAX, RBX"),
                 crate::lexer::Operator::Divide => {
-                    asm.push_instr("mov rdx, 0");
-                    asm.push_instr("idiv rbx")
+                    asm.push_instr("MOV RDX, 0");
+                    asm.push_instr("IDIV RBX")
                 },
             }
         },
@@ -183,24 +198,21 @@ fn generate_function_call(asm: &mut ASM, call: FunctionCall, variables: &mut Var
 
     let params_in_regs = min(call.parameters.len(), 4);
 
-    asm.push_instr("push rbp");
-    asm.push_instr("mov rbp, rsp");
-
     for param in call.parameters.into_iter().rev() {
         generate_expression(asm, param, variables);
-        asm.push_instr("push rax");
+        asm.push_instr("PUSH RAX");
         variables.push();
     }
     for i in 0..params_in_regs {
         match i {
-            0 => asm.push_instr("pop rcx"),
-            1 => asm.push_instr("pop rdx"),
-            2 => asm.push_instr("pop r8x"),
-            3 => asm.push_instr("pop r9x"),
+            0 => asm.push_instr("POP RCX"),
+            1 => asm.push_instr("POP RDX"),
+            2 => asm.push_instr("POP R8"),
+            3 => asm.push_instr("POP R9"),
             _ => panic!("Invalid index") // Should never run as usize is >= 0 and we have constrained it to be <= 4
         }
         variables.pop();
     }
-    asm.push_instr("sub rsp, 32");
-    asm.push_instr(format!("call {}", call.function));
+    asm.push_instr("SUB RSP, 32");
+    asm.push_instr(format!("CALL {}", call.function));
 }

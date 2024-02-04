@@ -122,6 +122,7 @@ impl Display for Token {
                     Keyword::Function => write!(f, "Function"),
                     Keyword::Assignment => write!(f, "Assign"),
                     Keyword::Return => write!(f, "Return"),
+                    Keyword::External => write!(f, "External"),
                 }
             },
             Token::Type(type_) => {
@@ -166,7 +167,8 @@ impl Display for Token {
 pub enum Keyword {
     Function,
     Assignment,
-    Return
+    Return,
+    External
 }
 impl Keyword {
     pub fn from_string(string: &String) -> Option<Keyword> {
@@ -174,6 +176,7 @@ impl Keyword {
             "fn" => Some(Keyword::Function),
             "let" => Some(Keyword::Assignment),
             "ret" => Some(Keyword::Return),
+            "extern" => Some(Keyword::External),
             _ => None
         }
     }

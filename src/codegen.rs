@@ -56,7 +56,6 @@ impl Variables {
     }
     pub fn close_scope(&mut self, asm: &mut ASM) {
         let vars = self.scopes.pop().unwrap();
-        println!("{} -= {}", self.stack_pointer, vars.len());
         self.stack_pointer -= vars.len();
 
         asm.push_instr(format!("add rsp, {}", vars.len()*8));
@@ -68,7 +67,6 @@ impl Variables {
     pub fn get_var_addr(&self, name: &String) -> usize {
         for scope in self.scopes.iter().rev() {
             if let Some(pointer) = scope.get(name) {
-                println!("{} - {}", self.stack_pointer, pointer);
                 return (self.stack_pointer-pointer)*8;
             }
         }

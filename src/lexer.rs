@@ -1,4 +1,4 @@
-use std::{collections::VecDeque, fmt::{write, Display}, process::exit};
+use std::{collections::VecDeque, fmt::Display};
 
 pub fn tokenize(file: &String) -> Tokens {
     let mut chars = file.chars();

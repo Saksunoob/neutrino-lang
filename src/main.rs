@@ -31,7 +31,13 @@ fn main() {
 
     let tokens = tokenize(&program_content);
     println!("Tokens:\n{tokens}");
-    let syntax_tree = parse(tokens);
+    let syntax_tree = match parse(tokens) {
+        Ok(syntax_tree) => syntax_tree,
+        Err(err) => {
+            eprintln!("Error parsing tokens:\n{err}");
+            exit(1)
+        },
+    };
     let asm = generate(syntax_tree);
 
     fs::write("output.asm", asm);

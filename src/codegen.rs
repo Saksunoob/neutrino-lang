@@ -181,6 +181,7 @@ fn generate_expression(asm: &mut ASM, expression: Expression, variables: &mut Va
                     asm.push_instr(format!("MOV RAX, {}", b as i32));
                 },
                 crate::lexer::Value::Float(_) => todo!(),
+                crate::lexer::Value::Void => (),
             }
         },
         Expression::Variable(var) => {

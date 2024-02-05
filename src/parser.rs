@@ -24,12 +24,14 @@ impl Display for ParseError {
 }
 
 pub fn parse(mut tokens: Tokens) -> Result<SyntaxTree, ParseError> {
+    let function_signatures = extract_function_signatures(&tokens)?;
+
     let mut syntax_tree = SyntaxTree::new();
     loop {
         match tokens.peek() {
             lexer::Token::EOF => break,
             lexer::Token::Keyword(lexer::Keyword::Function) => {
-                syntax_tree.push(parse_function(&mut tokens)?)
+                syntax_tree.push(parse_function(&mut tokens, &function_signatures)?)
             },
             lexer::Token::Keyword(lexer::Keyword::External) => {
                 syntax_tree.external(parse_extern(&mut tokens)?)
@@ -60,6 +62,34 @@ pub fn parse_extern(tokens: &mut Tokens) -> Result<String, ParseError> {
         }
     };
 
+    // Consume signature
+    if let Token::SpecialSymbol(SpecialSymbol::OpenParen) = tokens.next() {
+        loop {
+            match tokens.next() {
+                Token::Type(_) => {
+                    match tokens.next() {
+                        Token::SpecialSymbol(SpecialSymbol::CloseParen) => {
+                            match tokens.next() {
+                                Token::Type(_) => break,
+                                token => {
+                                    return Err(ParseError::new(format!("Expected extern return type, got {token}"), tokens.get_prev_location()));   
+                                }
+                            }
+                        },
+                        Token::SpecialSymbol(SpecialSymbol::Comma) => (),
+                        token => {
+                            return Err(ParseError::new(format!("Unexpected token after type: {token}"), tokens.get_prev_location()));
+                        }
+                    }
+                }
+                token => {
+                    return Err(ParseError::new(format!("Unexpected token after type: {token}"), tokens.get_prev_location()));
+                }
+            }
+        }
+    }
+    
+
     // Consume terminator
     match tokens.next() {
         Token::SpecialSymbol(SpecialSymbol::Terminator) => Ok(name),
@@ -69,7 +99,7 @@ pub fn parse_extern(tokens: &mut Tokens) -> Result<String, ParseError> {
     }
 }
 
-pub fn parse_function(tokens: &mut Tokens) -> Result<Function, ParseError> {
+fn parse_function(tokens: &mut Tokens, function_signatures: &HashMap<String, FunctionSiganture>) -> Result<Function, ParseError> {
     // Consume Function token
     match tokens.next() {
         Token::Keyword(Keyword::Function) => (),
@@ -139,11 +169,11 @@ pub fn parse_function(tokens: &mut Tokens) -> Result<Function, ParseError> {
     Ok(Function {
         name,
         arguments,
-        block: parse_block(tokens, return_type, &mut variables)?,
+        block: parse_block(tokens, return_type, &mut variables, function_signatures)?,
     })
 }
 
-fn parse_block(tokens: &mut Tokens, return_type: Type, variables: &mut HashMap<String, Type>) -> Result<Block, ParseError> {
+fn parse_block(tokens: &mut Tokens, return_type: Type, variables: &mut HashMap<String, Type>, function_signatures: &HashMap<String, FunctionSiganture>) -> Result<Block, ParseError> {
     match tokens.next() {
         Token::SpecialSymbol(SpecialSymbol::OpenBracket) => Ok(()),
         token => {
@@ -157,7 +187,7 @@ fn parse_block(tokens: &mut Tokens, return_type: Type, variables: &mut HashMap<S
             tokens.next();
             break;
         }
-        instructions.push(parse_instruction(tokens, variables)?);
+        instructions.push(parse_instruction(tokens, variables, function_signatures, &return_type)?);
     }
 
     return Ok(Block {
@@ -166,7 +196,7 @@ fn parse_block(tokens: &mut Tokens, return_type: Type, variables: &mut HashMap<S
     });
 }
 
-fn parse_instruction(tokens: &mut Tokens, variables: &mut HashMap<String, Type>) -> Result<Instruction, ParseError> {
+fn parse_instruction(tokens: &mut Tokens, variables: &mut HashMap<String, Type>, function_signatures: &HashMap<String, FunctionSiganture>, return_type: &Type) -> Result<Instruction, ParseError> {
     let mut expect_terminator = true;
 
     let instruction = match tokens.next() {
@@ -185,20 +215,35 @@ fn parse_instruction(tokens: &mut Tokens, variables: &mut HashMap<String, Type>)
                 }
             }?;
 
-            variables.insert(id.clone(), Type::Void);
+            let value = parse_expression(tokens, variables, function_signatures)?;
+            let type_ = value.get_type(variables, function_signatures).unwrap();
+            variables.insert(id.clone(), type_);
 
-            Ok(Instruction::Decleration { id, value: parse_expression(tokens, variables)? })
+            Ok(Instruction::Decleration { id, value })
         },
         Token::Keyword(Keyword::Return) => {
-            Ok(Instruction::Return(parse_expression(tokens, variables)?))
+            if let Token::SpecialSymbol(SpecialSymbol::Terminator) = tokens.peek() {
+                Ok(Instruction::Return(Expression::Value(Value::Void)))
+            } else {
+                let expression = parse_expression(tokens, variables, function_signatures)?;
+                if expression.get_type(variables, function_signatures) != Some(*return_type) {
+                    return Err(ParseError::new(format!("Expected return type {return_type:?} but found {expression:?}"), tokens.get_prev_location()));
+                }
+                Ok(Instruction::Return(expression))
+            }
         },
         Token::Keyword(Keyword::If) => {
             expect_terminator = false;
-            Ok(Instruction::If { condition: parse_expression(tokens, variables)?, block: parse_block(tokens, Type::Void, variables)? })
+            Ok(Instruction::If { condition: parse_expression(tokens, variables, function_signatures)?, block: parse_block(tokens, Type::Void, variables, function_signatures)? })
         },
         Token::Keyword(Keyword::While) => {
             expect_terminator = false;
-            Ok(Instruction::While { condition: parse_expression(tokens, variables)?, block: parse_block(tokens, Type::Void, variables)? })
+            let condition = parse_expression(tokens, variables, function_signatures)?;
+            let condition_type = condition.get_type(variables, function_signatures).unwrap();
+            if condition_type != Type::Boolean {
+                return Err(ParseError::new(format!("Expected condition type boolean but found {condition_type:?}"), tokens.get_prev_location()));
+            }
+            Ok(Instruction::While { condition, block: parse_block(tokens, Type::Void, variables, function_signatures)? })
         }
         Token::Identifier(id) => {
             if variables.contains_key(&id) {
@@ -206,9 +251,9 @@ fn parse_instruction(tokens: &mut Tokens, variables: &mut HashMap<String, Type>)
                     Token::SpecialSymbol(SpecialSymbol::Equals) => (),
                     token => return Err(ParseError::new(format!("Unexpected token after variable name: {token}"), tokens.get_prev_location()))
                 }
-                Ok(Instruction::Assignment { id, value: parse_expression(tokens, variables)? })
+                Ok(Instruction::Assignment { id, value: parse_expression(tokens, variables, function_signatures)? })
             } else {
-                Ok(Instruction::FunctionCall(parse_function_call(id, tokens, variables)?))
+                Ok(Instruction::FunctionCall(parse_function_call(id, tokens, variables, function_signatures)?))
             }
         },
         token => {
@@ -225,12 +270,12 @@ fn parse_instruction(tokens: &mut Tokens, variables: &mut HashMap<String, Type>)
     }
 }
 
-fn parse_function_call(function: String, tokens: &mut Tokens, variables: &mut HashMap<String, Type>) -> Result<FunctionCall, ParseError> {
-    let parameters = match tokens.next() {
+fn parse_function_call(function: String, tokens: &mut Tokens, variables: &mut HashMap<String, Type>, function_signatures: &HashMap<String, FunctionSiganture>) -> Result<FunctionCall, ParseError> {
+    let arguments = match tokens.next() {
         Token::SpecialSymbol(SpecialSymbol::OpenParen) => {
-            let mut params = Vec::new();
+            let mut args = Vec::new();
             loop {
-                params.push(parse_expression(tokens, variables)?);
+                args.push(parse_expression(tokens, variables, function_signatures)?);
 
                 match tokens.next() {
                     Token::SpecialSymbol(SpecialSymbol::Comma) => Ok(()),
@@ -240,16 +285,26 @@ fn parse_function_call(function: String, tokens: &mut Tokens, variables: &mut Ha
                     }
                 }?
             }
-            Ok(params)
+            Ok(args)
         }
         token => {
-            Err(ParseError::new(format!("Unexpected token after function name 1: {token}"), tokens.get_prev_location()))
+            Err(ParseError::new(format!("Unexpected token after function name: {token}"), tokens.get_prev_location()))
         }
     }?;
-    Ok(FunctionCall::new(function, parameters))
+    if let Some(signature) = function_signatures.get(&function) {
+        if arguments.iter().enumerate().all(|(index, argument)| {
+            signature.arguments.get(index).is_some_and(|type_| type_ == &argument.get_type(variables, function_signatures).unwrap())
+        }) {
+            Ok(FunctionCall::new(function, arguments))
+        } else {
+            Err(ParseError::new(format!("Function call has wrong arguments"), tokens.get_prev_location()))
+        }
+    } else {
+        Err(ParseError::new(format!("Function {function} not found"), tokens.get_prev_location()))
+    }
 }
 
-fn parse_expression(tokens: &mut Tokens, variables: &mut HashMap<String, Type>) -> Result<Expression, ParseError> {
+fn parse_expression(tokens: &mut Tokens, variables: &mut HashMap<String, Type>, function_signatures: &HashMap<String, FunctionSiganture>) -> Result<Expression, ParseError> {
     let mut operands = Vec::new();
     let mut operators = Vec::new();
 
@@ -263,7 +318,7 @@ fn parse_expression(tokens: &mut Tokens, variables: &mut HashMap<String, Type>) 
                 if !last_element_was_operator {
                     return Err(ParseError::new(format!("Expected operator"), tokens.get_curr_location()));
                 }
-                operands.push(parse_expression(tokens, variables)?);
+                operands.push(parse_expression(tokens, variables, function_signatures)?);
                 last_element_was_operator = false;
                 continue;
             },
@@ -295,7 +350,7 @@ fn parse_expression(tokens: &mut Tokens, variables: &mut HashMap<String, Type>) 
                     return Err(ParseError::new(format!("Expected operator"), tokens.get_prev_location()));
                 }
                 operands.push(match tokens.peek() {
-                    Token::SpecialSymbol(SpecialSymbol::OpenParen) => Expression::FunctionCall(parse_function_call(id, tokens, variables)?),
+                    Token::SpecialSymbol(SpecialSymbol::OpenParen) => Expression::FunctionCall(parse_function_call(id, tokens, variables, function_signatures)?),
                     _ => Expression::Variable(id)
                 });
                 last_element_was_operator = false;
@@ -336,6 +391,13 @@ fn parse_expression(tokens: &mut Tokens, variables: &mut HashMap<String, Type>) 
                 let lhv = operands.remove(index);
                 let rhv = operands.remove(index);
 
+                let lhv_type = lhv.get_type(variables, function_signatures);
+                let rhv_type = rhv.get_type(variables, function_signatures);
+
+                if lhv_type != rhv_type {
+                    return Err(ParseError::new(format!("Expected same types in expression, got {:?}, {:?}", lhv_type.unwrap(), rhv_type.unwrap()), tokens.get_prev_location()));
+                }
+
                 operands.insert(index, Expression::MathOpearation { lhv: Box::new(lhv), rhv: Box::new(rhv), operator })
             },
             None => {
@@ -348,6 +410,129 @@ fn parse_expression(tokens: &mut Tokens, variables: &mut HashMap<String, Type>) 
         }
     }
     Ok(operands.remove(0))
+}
+
+struct FunctionSiganture {
+    name: String,
+    arguments: Vec<Type>,
+    return_type: Type
+}
+impl FunctionSiganture {
+    pub fn new(name: String, arguments: Vec<Type>, return_type: Type) -> Self {
+        Self { name, arguments, return_type }
+    }
+}
+
+fn extract_function_signatures(tokens: &Tokens) -> Result<HashMap<String, FunctionSiganture>, ParseError> {
+    let mut signatures = HashMap::new();
+    let mut idx = 0;
+    loop {
+        match tokens.peek_nth(idx) {
+            lexer::Token::EOF => break,
+            lexer::Token::Keyword(lexer::Keyword::Function) |
+            lexer::Token::Keyword(lexer::Keyword::External) => {
+                let signature = extract_function_signature(tokens, idx).unwrap();
+                signatures.insert(signature.name.clone(), signature);
+            },
+            _ => ()
+        }
+        idx += 1;
+    }
+    Ok(signatures)
+}
+
+// New function to extract the function signature
+fn extract_function_signature(tokens: &Tokens, mut index: usize) -> Result<FunctionSiganture, ParseError> {
+    match tokens.peek_nth(index) {
+        lexer::Token::Keyword(lexer::Keyword::Function) => {
+            index += 1;
+            let name = if let lexer::Token::Identifier(name) = tokens.peek_nth(index) {
+                name.clone()
+            } else {
+                return Err(ParseError::new("Expected function name".to_string(), tokens.get_location_nth(index)));
+            };
+
+            index += 1;
+            let mut arguments = Vec::new();
+
+            if let lexer::Token::SpecialSymbol(lexer::SpecialSymbol::OpenParen) = tokens.peek_nth(index) {
+                loop {
+                    index += 1;
+                    match tokens.peek_nth(index) {
+                        lexer::Token::SpecialSymbol(lexer::SpecialSymbol::CloseParen) => {
+                            break;
+                        },
+                        lexer::Token::Identifier(_) => {
+                            index += 1;
+                            if let lexer::Token::Type(type_) = tokens.peek_nth(index) {
+                                arguments.push(*type_);
+                            }
+                            if let lexer::Token::SpecialSymbol(lexer::SpecialSymbol::Comma) = tokens.peek_nth(index+1) {
+                                index += 1;
+                            }
+                        }
+                        token => {
+                            return Err(ParseError::new(format!("Expected function argument, got {}", token).to_string(), tokens.get_location_nth(index)));
+                        }
+                    }
+                }
+            } else {
+                return Err(ParseError::new("Expected function arguments".to_string(), tokens.get_location_nth(index)));
+            };
+
+            index += 1;
+            let return_type = if let lexer::Token::Type(type_) = tokens.peek_nth(index) {
+                *type_
+            } else {
+                return Err(ParseError::new("Expected function return type".to_string(), tokens.get_location_nth(index)));
+            };
+
+            Ok(FunctionSiganture::new(name, arguments, return_type))
+        },
+        lexer::Token::Keyword(lexer::Keyword::External) => {
+            index += 1;
+            let name = if let lexer::Token::Identifier(name) = tokens.peek_nth(index) {
+                name.clone()
+            } else {
+                return Err(ParseError::new("Expected external function name".to_string(), tokens.get_location_nth(index)));
+            };
+
+            index += 1;
+            let mut arguments = Vec::new();
+
+            if let lexer::Token::SpecialSymbol(lexer::SpecialSymbol::OpenParen) = tokens.peek_nth(index) {
+                loop {
+                    index += 1;
+                    match tokens.peek_nth(index) {
+                        lexer::Token::SpecialSymbol(lexer::SpecialSymbol::CloseParen) => {
+                            break;
+                        },
+                        lexer::Token::Type(type_) => {
+                            arguments.push(*type_);
+                            if let lexer::Token::SpecialSymbol(lexer::SpecialSymbol::Comma) = tokens.peek_nth(index+1) {
+                                index += 1;
+                            }
+                        }
+                        _ => {
+                            return Err(ParseError::new("Expected external function argument".to_string(), tokens.get_location_nth(index)));
+                        }
+                    }
+                }
+            } else {
+                return Err(ParseError::new("Expected external function arguments".to_string(), tokens.get_location_nth(index)));
+            };
+
+            index += 1;
+            let return_type = if let lexer::Token::Type(type_) = tokens.peek_nth(index) {
+                *type_
+            } else {
+                return Err(ParseError::new("Expected external function return type".to_string(), tokens.get_location_nth(index)));
+            };
+
+            Ok(FunctionSiganture::new(name, arguments, return_type))
+        },
+        _ => Err(ParseError::new("Expected function siganture".to_string(), tokens.get_location_nth(index)))
+    }
 }
 
 #[derive(Debug)]
@@ -413,6 +598,30 @@ pub enum Expression {
     FunctionCall(FunctionCall)
 }
 
+impl Expression {
+    fn get_type(&self, variables: &mut HashMap<String, Type>, function_signatures: &HashMap<String, FunctionSiganture>) -> Option<Type> {
+        match self {
+            Expression::Value(value) => Some(value.get_type()),
+            Expression::Variable(var) => variables.get(var).copied(),
+            Expression::MathOpearation { lhv, rhv, operator } => {
+                let lhv_type = lhv.get_type(variables, function_signatures);
+                let rhv_type = rhv.get_type(variables, function_signatures);
+                if lhv_type == rhv_type {
+                    match operator {
+                        Operator::Plus | Operator::Minus | Operator::Multiply | Operator::Divide => Some(lhv_type.unwrap()),
+                        Operator::GreaterThan | Operator::LessThan | Operator::GreaterThanOrEqual | Operator::LessThanOrEqual | Operator::Equal | Operator::NotEqual => Some(Type::Boolean),
+                    }
+                } else {
+                    return None
+                }
+            },
+            Expression::FunctionCall(call) => {
+                function_signatures.get(&call.function).and_then(|signature| Some(signature.return_type))
+            }
+        }
+    }
+}
+
 #[derive(Debug, PartialEq)]
 pub struct Block {
     pub return_type: Type,
@@ -434,6 +643,14 @@ impl FunctionCall {
 mod tests {
     use super::*;
     use crate::lexer::{Token, Value, Operator, SpecialSymbol};
+
+    fn empty_signature() -> HashMap<String, FunctionSiganture> {
+            vec![("".to_string(),FunctionSiganture {
+            name: "".to_string(),
+            arguments: Vec::new(),
+            return_type: Type::Void
+        })].into_iter().collect()
+    }
     
     #[test]
     fn test_parse_expression_valid() {
@@ -444,7 +661,7 @@ mod tests {
             Token::SpecialSymbol(SpecialSymbol::CloseParen)
         ]);
         let mut variables = HashMap::new();
-        let result = parse_expression(&mut tokens, &mut variables);
+        let result = parse_expression(&mut tokens, &mut variables, &empty_signature());
 
         match result {
             Ok(expression) => {
@@ -470,7 +687,7 @@ mod tests {
             // Missing second operand
         ]);
         let mut variables = HashMap::new();
-        let result = parse_expression(&mut tokens, &mut variables);
+        let result = parse_expression(&mut tokens, &mut variables, &empty_signature());
 
         assert!(result.is_err());
     }
@@ -486,9 +703,15 @@ mod tests {
             Token::SpecialSymbol(SpecialSymbol::CloseParen)
         ]);
 
+        let signature = vec![("test_function".to_string(),FunctionSiganture {
+            name: "test_function".to_string(),
+            arguments: vec![Type::Integer, Type::Integer],
+            return_type: Type::Void
+        })].into_iter().collect();
+
         let mut variables: HashMap<String, Type> = HashMap::new();
 
-        let result = parse_function_call("test_function".to_string(), &mut tokens, &mut variables);
+        let result = parse_function_call("test_function".to_string(), &mut tokens, &mut variables, &signature);
         assert!(result.is_ok());
 
         let function_call = result.unwrap();
@@ -507,13 +730,15 @@ mod tests {
 
         let mut variables: HashMap<String, Type> = HashMap::new();
 
-        let result = parse_function_call("test_function".to_string(), &mut tokens, &mut variables);
+        let result = parse_function_call("test_function".to_string(), &mut tokens, &mut variables, &empty_signature());
         assert!(result.is_err());
     }
 
     #[test]
     fn test_parse_instruction_valid() {
         let mut variables = HashMap::new();
+        variables.insert("variable".to_string(), Type::Integer);
+
         let mut tokens = Tokens::from_vec(vec![
             Token::Keyword(Keyword::Return),
             Token::Identifier("variable".to_string()),
@@ -522,7 +747,7 @@ mod tests {
 
         variables.insert("variable".to_string(), Type::Integer);
 
-        let result = parse_instruction(&mut tokens, &mut variables);
+        let result = parse_instruction(&mut tokens, &mut variables, &empty_signature(), &Type::Integer);
         assert!(result.is_ok());
         let instruction = result.unwrap();
 
@@ -541,7 +766,7 @@ mod tests {
             Token::SpecialSymbol(SpecialSymbol::Terminator),
         ]);
 
-        let result = parse_instruction(&mut tokens, &mut variables);
+        let result = parse_instruction(&mut tokens, &mut variables, &empty_signature(), &Type::Void);
         assert!(result.is_err());
         }
 
@@ -560,7 +785,8 @@ mod tests {
             Token::SpecialSymbol(SpecialSymbol::CloseBracket),
         ]);
 
-        let result = parse_block(tokens, return_type, &mut variables);
+        let result = parse_block(tokens, return_type, &mut variables, &empty_signature());
+        println!("Result {:?}", result);
         assert!(result.is_ok());
         let closure = result.unwrap();
         assert_eq!(closure.return_type, Type::Integer);
@@ -587,7 +813,7 @@ mod tests {
             Token::SpecialSymbol(SpecialSymbol::CloseBracket),
         ]);
 
-        let result = parse_function(&mut tokens);
+        let result = parse_function(&mut tokens, &empty_signature());
         assert!(result.is_ok());
 
         let function = result.unwrap();
@@ -604,7 +830,7 @@ mod tests {
             Token::SpecialSymbol(SpecialSymbol::CloseBracket),
         ]);
 
-        let result = parse_function(&mut tokens);
+        let result = parse_function(&mut tokens, &empty_signature());
         assert!(result.is_err());
     }
     #[test]
@@ -630,5 +856,37 @@ mod tests {
 
         let result = parse_extern(&mut tokens);
         assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_generate_function_signatures() {
+        let mut tokens = Tokens::from_vec(vec![
+            Token::Keyword(Keyword::Function),
+            Token::Identifier("func1".to_string()),
+            Token::SpecialSymbol(SpecialSymbol::OpenParen),
+            Token::Identifier("x".to_string()),
+            Token::Type(Type::Integer),
+            Token::SpecialSymbol(SpecialSymbol::CloseParen),
+            Token::Type(Type::Void),
+            Token::SpecialSymbol(SpecialSymbol::OpenBracket),
+            Token::SpecialSymbol(SpecialSymbol::CloseBracket),
+            Token::Keyword(Keyword::External),
+            Token::Identifier("func2".to_string()),
+            Token::SpecialSymbol(SpecialSymbol::OpenParen),
+            Token::Type(Type::Float),
+            Token::SpecialSymbol(SpecialSymbol::CloseParen),
+            Token::Type(Type::Void),
+            Token::SpecialSymbol(SpecialSymbol::Terminator),
+        ]);
+
+        let result = extract_function_signatures(&mut tokens);
+        assert!(result.is_ok());
+
+        let signatures = result.unwrap();
+        assert_eq!(signatures.len(), 2);
+        assert!(signatures.contains_key("func1"));
+        assert_eq!(signatures.get("func1").unwrap().arguments, vec![Type::Integer]);
+        assert!(signatures.contains_key("func2"));
+        assert_eq!(signatures.get("func2").unwrap().arguments, vec![Type::Float]);
     }
 }

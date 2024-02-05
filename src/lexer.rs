@@ -58,20 +58,24 @@ impl Tokens {
         self.tokens.push_back(token);
         self.locations.push_back(location);
     }
-    // Returns next token and consumes it, panics if no tokens remain
     pub fn next(&mut self) -> Token {
         self.locations.pop_front();
         self.tokens.pop_front().unwrap_or(Token::EOF)
     }
-    // Returns next token, panics if no tokens remain
     pub fn peek(&mut self) -> &Token {
         self.tokens.front().unwrap_or(&Token::EOF)
+    }
+    pub fn peek_nth(&self, nth: usize) -> &Token {
+        self.tokens.get(nth).unwrap_or(&Token::EOF)
     }
     pub fn get_prev_location(&self) -> (usize, usize) {
         self.locations.get(0).copied().unwrap_or((0, 0))
     }
     pub fn get_curr_location(&self) -> (usize, usize) {
         self.locations.get(1).copied().unwrap_or((0, 0))
+    }
+    pub fn get_location_nth(&self, nth: usize) -> (usize, usize) {
+        self.locations.get(nth+1).copied().unwrap_or((0, 0))
     }
 }
 impl Display for Tokens {
@@ -180,6 +184,7 @@ impl Display for Token {
                     Value::Integer(i) => write!(f, "{}", &i.to_string()),
                     Value::Float(v) => write!(f, "{}", &v.to_string()),
                     Value::Boolean(b) => write!(f, "{}", &b.to_string()),
+                    Value::Void => write!(f, "Void"),
                 }
             },
             Token::SpecialSymbol(symbol) => {
@@ -257,6 +262,7 @@ impl Type {
 
 #[derive(Debug, PartialEq)]
 pub enum Value {
+    Void,
     Integer(i64),
     Float(f64),
     Boolean(bool),
@@ -283,6 +289,7 @@ impl Value {
             Value::Integer(_) => Type::Integer,
             Value::Float(_) => Type::Float,
             Value::Boolean(_) => Type::Boolean,
+            Value::Void => Type::Void,
         }
     }
 }
@@ -381,7 +388,7 @@ pub fn id_from_string(id: &String) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    
+
     #[test]
     fn test_tokenize() {
         let input = "fn calculate(a, b) { let sum = a + b; ret sum * 2; }".to_string();

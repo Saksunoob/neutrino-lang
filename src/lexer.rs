@@ -191,6 +191,7 @@ impl Display for Token {
                     Keyword::Return => write!(f, "Return"),
                     Keyword::External => write!(f, "External"),
                     Keyword::If => write!(f, "If"),
+                    Keyword::While => write!(f, "While"),
                 }
             },
             Token::Type(type_) => {
@@ -238,7 +239,8 @@ pub enum Keyword {
     Declaration,
     Return,
     External,
-    If
+    If,
+    While
 }
 impl Keyword {
     pub fn from_string(string: &String) -> Option<Keyword> {
@@ -248,6 +250,7 @@ impl Keyword {
             "ret" => Some(Keyword::Return),
             "extern" => Some(Keyword::External),
             "if" => Some(Keyword::If),
+            "while" => Some(Keyword::While),
             _ => None
         }
     }

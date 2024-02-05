@@ -165,7 +165,8 @@ fn generate_instruction(asm: &mut ASM, instruction: Instruction, variables: &mut
             asm.push_instr(format!("PUSH RAX"));
             variables.new_variable(&id);
         },
-        Instruction::If { condition, block } => generate_if(asm, variables, condition, block)
+        Instruction::If { condition, block } => generate_if(asm, variables, condition, block),
+        Instruction::While { condition, block } => generate_while(asm, variables, condition, block),
     }
 }
 
@@ -221,6 +222,21 @@ fn generate_if(asm: &mut ASM, variables: &mut Variables, condition: Expression, 
     generate_block(asm, block, variables);
     asm.push_instr(format!("JMP end_{counter}"));
     asm.push_label(format!("end_{counter}"));
+}
+
+fn generate_while(asm: &mut ASM, variables: &mut Variables, condition: Expression, block: Block) {
+    let counter = asm.get_counter();
+
+    asm.push_label(format!("eval_{counter}"));
+    generate_expression(asm, condition, variables); 
+    asm.push_instr("CMP RAX, 0");
+    asm.push_instr(format!("JNE while_{counter}"));
+    asm.push_instr(format!("JMP end_{counter}"));
+    asm.push_label(format!("while_{counter}"));
+    generate_block(asm, block, variables);
+    asm.push_instr(format!("JMP eval_{counter}"));
+    asm.push_label(format!("end_{counter}"));
+
 }
 
 fn generate_function_call(asm: &mut ASM, call: FunctionCall, variables: &mut Variables) {

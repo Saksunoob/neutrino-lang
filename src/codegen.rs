@@ -1,4 +1,4 @@
-use std::{cmp::min, collections::HashMap, process::exit};
+use std::{collections::HashMap, process::exit};
 
 use crate::{lexer::Type, parser::{Closure, Expression, FunctionCall, Instruction, SyntaxTree}};
 
@@ -45,41 +45,26 @@ impl ASM {
 
 struct Variables {
     scopes: Vec<HashMap<String, usize>>,
-    stack_pointer: usize,
-    function_arguments: usize
+    stack_pointer: usize
 }
 impl Variables {
     pub fn new(input_parameters: Vec<(String, Type)>, asm: &mut ASM) -> Self {
-        let function_arguments = if input_parameters.len() > 4 {input_parameters.len()-4} else {0};
         let mut call_scope = HashMap::new();
 
-        let mut stack_pointer = 0;
-
-        for i in (4..input_parameters.len()).rev() {
-            stack_pointer += 1;
-            call_scope.insert(input_parameters[i].0.clone(), stack_pointer);
-        }
-
-        asm.push_instr("POP RAX"); // Pop return address
-        asm.push_instr("ADD RSP, 32"); // Remove padding by Windows call convention
-        asm.push_instr("PUSH RAX"); // Push return address
-
-        stack_pointer += 1; // Account for return address
-
-        let mut param_scope = HashMap::new();
-
-        for i in 0..min(input_parameters.len(), 4) {
+        for i in 0..input_parameters.len() {
             match i {
-                0 => asm.push_instr("PUSH RCX"),
-                1 => asm.push_instr("PUSH RDX"),
-                2 => asm.push_instr("PUSH R8"),
-                3 => asm.push_instr("PUSH R9"),
-                _ => panic!("Invalid index") // Should never run as usize is >= 0 and we have constrained it to be <= 4
+                0 => asm.push_instr("MOV RCX, [RSP+8]"),
+                1 => asm.push_instr("MOV RDX, [RSP+16]"),
+                2 => asm.push_instr("MOV R8, [RSP+24]"),
+                3 => asm.push_instr("MOV R9, [RSP+32]"),
+                _ => ()
             }
-            stack_pointer += 1;
-            param_scope.insert(input_parameters[i].0.clone(), stack_pointer);
+            call_scope.insert(input_parameters[i].0.clone(), input_parameters.len() - i);
         }
-        Variables { scopes: vec![call_scope, param_scope], stack_pointer, function_arguments }
+
+        let stack_pointer = input_parameters.len()+1; // +1 for return address
+
+        Variables { scopes: vec![call_scope, HashMap::new()], stack_pointer }
     }
     pub fn new_scope(&mut self) {
         self.scopes.push(HashMap::new())
@@ -164,7 +149,7 @@ fn generate_instruction(asm: &mut ASM, instruction: Instruction, variables: &mut
         Instruction::Return(expr) => {
             generate_expression(asm, expr, variables);
             variables.close_scopes_to(1, asm);
-            asm.push_instr(format!("RET {}", variables.function_arguments*8));
+            asm.push_instr("RET 32");
         },
         Instruction::FunctionCall(call) => {
             generate_function_call(asm, call, variables)
@@ -226,7 +211,7 @@ fn generate_function_call(asm: &mut ASM, call: FunctionCall, variables: &mut Var
         asm.push_instr("PUSH RAX");
         variables.push();
     }
-    for i in 0..params {
+    for i in 0..params { // Move first four arguments to registers
         match i {
             0 => asm.push_instr("POP RCX"),
             1 => asm.push_instr("POP RDX"),
@@ -238,4 +223,5 @@ fn generate_function_call(asm: &mut ASM, call: FunctionCall, variables: &mut Var
     }
     asm.push_instr("SUB RSP, 32");
     asm.push_instr(format!("CALL {}", call.function));
+    asm.push_instr(format!("ADD RSP, {}", params.min(4)*8));
 }

@@ -1,4 +1,4 @@
-use std::{collections::VecDeque, fmt::Display, ops::Index};
+use std::{collections::VecDeque, fmt::Display};
 
 pub fn tokenize(file: &String) -> Tokens {
     let mut chars = file.chars();
@@ -190,6 +190,7 @@ impl Display for Token {
                     Keyword::Declaration => write!(f, "Decleration"),
                     Keyword::Return => write!(f, "Return"),
                     Keyword::External => write!(f, "External"),
+                    Keyword::If => write!(f, "If"),
                 }
             },
             Token::Type(type_) => {
@@ -236,7 +237,8 @@ pub enum Keyword {
     Function,
     Declaration,
     Return,
-    External
+    External,
+    If
 }
 impl Keyword {
     pub fn from_string(string: &String) -> Option<Keyword> {
@@ -245,6 +247,7 @@ impl Keyword {
             "let" => Some(Keyword::Declaration),
             "ret" => Some(Keyword::Return),
             "extern" => Some(Keyword::External),
+            "if" => Some(Keyword::If),
             _ => None
         }
     }

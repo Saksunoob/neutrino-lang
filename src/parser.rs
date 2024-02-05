@@ -117,7 +117,7 @@ pub fn parse_function(tokens: &mut Tokens) -> Result<Function, ParseError> {
     };
 
     // Get function arguments
-    let parameters = match tokens.next() {
+    let arguments = match tokens.next() {
         Token::SpecialSymbol(SpecialSymbol::OpenParen) => {
             let mut params = Vec::new();
             match tokens.peek() {
@@ -164,9 +164,12 @@ pub fn parse_function(tokens: &mut Tokens) -> Result<Function, ParseError> {
         }
     }?;
 
+    let mut variables = arguments.iter().cloned().collect();
+
     Ok(Function {
         name,
-        closure: parse_closure(return_type, parameters, tokens)?,
+        arguments,
+        block: parse_block(tokens, return_type, &mut variables)?,
     })
 }
 
@@ -196,7 +199,7 @@ mod parse_function_tests {
 
         let function = result.unwrap();
         assert_eq!(function.name, "test_func");
-        assert_eq!(function.closure.parameters.len(), 2);
+        assert_eq!(function.arguments, vec![("x".to_string(), Type::Integer), ("y".to_string(), Type::Integer)]);
     }
 
     #[test]
@@ -213,15 +216,13 @@ mod parse_function_tests {
     }
 }
 
-fn parse_closure(return_type: Type, parameters: Vec<(String, Type)>, tokens: &mut Tokens) -> Result<Closure, ParseError> {
+fn parse_block(tokens: &mut Tokens, return_type: Type, variables: &mut HashMap<String, Type>) -> Result<Block, ParseError> {
     match tokens.next() {
         Token::SpecialSymbol(SpecialSymbol::OpenBracket) => Ok(()),
         token => {
-            Err(ParseError::new(format!("Unexpected token at the start of a closure: {token}"), tokens.get_prev_location()))
+            Err(ParseError::new(format!("Unexpected token at the start of a code block: {token}"), tokens.get_prev_location()))
         }
     }?;
-
-    let mut variables: HashMap<String, Type> = parameters.iter().cloned().collect();
     let mut instructions = Vec::new();
 
     loop {
@@ -229,12 +230,11 @@ fn parse_closure(return_type: Type, parameters: Vec<(String, Type)>, tokens: &mu
             tokens.next();
             break;
         }
-        instructions.push(parse_instruction(tokens, &mut variables)?);
+        instructions.push(parse_instruction(tokens, variables)?);
     }
 
-    return Ok(Closure {
+    return Ok(Block {
         return_type,
-        parameters,
         instructions,
     });
 }
@@ -247,10 +247,10 @@ mod parse_closure_tests {
     #[test]
     fn test_parse_closure_valid() {
         let return_type = Type::Integer;
-        let parameters = vec![
+        let mut variables = vec![
             ("param1".to_string(), Type::Integer),
             ("param2".to_string(), Type::Float),
-        ];
+        ].into_iter().collect();
         let tokens = &mut Tokens::from_vec(vec![
             Token::SpecialSymbol(SpecialSymbol::OpenBracket),
             Token::Keyword(Keyword::Return),
@@ -259,11 +259,10 @@ mod parse_closure_tests {
             Token::SpecialSymbol(SpecialSymbol::CloseBracket),
         ]);
 
-        let result = parse_closure(return_type, parameters.clone(), tokens);
+        let result = parse_block(tokens, return_type, &mut variables);
         assert!(result.is_ok());
         let closure = result.unwrap();
         assert_eq!(closure.return_type, Type::Integer);
-        assert_eq!(closure.parameters, parameters);
         assert_eq!(closure.instructions.len(), 1);
         match &closure.instructions[0] {
             Instruction::Return(Expression::Variable(param)) => assert_eq!(param, "param1"),
@@ -621,7 +620,8 @@ impl SyntaxTree {
 #[derive(Debug)]
 pub struct Function {
     pub name: String,
-    pub closure: Closure
+    pub arguments: Vec<(String, Type)>,
+    pub block: Block
 }
 
 #[derive(Debug, PartialEq)]
@@ -653,9 +653,8 @@ pub enum Expression {
 }
 
 #[derive(Debug, PartialEq)]
-pub struct Closure {
+pub struct Block {
     pub return_type: Type,
-    pub parameters: Vec<(String, Type)>,
     pub instructions: Vec<Instruction>
 }
 

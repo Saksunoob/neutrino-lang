@@ -1,6 +1,6 @@
 use std::{collections::HashMap, process::exit};
 
-use crate::{lexer::Type, parser::{Closure, Expression, FunctionCall, Instruction, SyntaxTree}};
+use crate::{lexer::Type, parser::{Block, Expression, Function, FunctionCall, Instruction, SyntaxTree}};
 
 struct ASM {
     externs: Vec<String>,
@@ -118,23 +118,25 @@ pub fn generate(syntax_tree: SyntaxTree) -> String {
     }
 
     for function in syntax_tree.functions {
-        asm.new_function(&function.name);
-
-        generate_function(&mut asm, function.closure);
+        generate_function(&mut asm, function);
     }
 
     asm.build()
 }
 
-fn generate_function(asm: &mut ASM, closure: Closure) {
+fn generate_function(asm: &mut ASM, function: Function) {
+    asm.new_function(&function.name);
 
-    let mut variables = Variables::new(closure.parameters, asm);
+    let mut variables = Variables::new(function.arguments, asm);
 
+    generate_block(asm, function.block, &mut variables);
+}
+
+fn generate_block(asm: &mut ASM, block: Block, variables: &mut Variables) {
     variables.new_scope();
-    
     // Generate instructions
-    for instruction in closure.instructions {
-        generate_instruction(asm, instruction, &mut variables)
+    for instruction in block.instructions {
+        generate_instruction(asm, instruction, variables)
     }
     variables.close_scope(asm);
 }

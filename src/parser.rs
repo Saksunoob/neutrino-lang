@@ -521,14 +521,11 @@ fn parse_expression(tokens: &mut Tokens, variables: &mut HashMap<String, Type>) 
         return Err(ParseError::new(format!("Expected one more operand in expression"), tokens.get_curr_location()));
     }
 
+    let mut current_operator = 0;
+
     loop {
         let index = operators.iter().enumerate().find(|(_, op)| {
-            match op {
-                Operator::Plus => false,
-                Operator::Minus => false,
-                Operator::Multiply => true,
-                Operator::Divide => true,
-            }
+            op.get_operation_order() == current_operator
         }).and_then(|(index, _)| Some(index));
 
         match index {
@@ -539,29 +536,13 @@ fn parse_expression(tokens: &mut Tokens, variables: &mut HashMap<String, Type>) 
 
                 operands.insert(index, Expression::MathOpearation { lhv: Box::new(lhv), rhv: Box::new(rhv), operator })
             },
-            None => break,
-        }
-    }
-
-    loop {
-        let index = operators.iter().enumerate().find(|(_, op)| {
-            match op {
-                Operator::Plus => true,
-                Operator::Minus => true,
-                Operator::Multiply => false,
-                Operator::Divide => false,
-            }
-        }).and_then(|(index, _)| Some(index));
-
-        match index {
-            Some(index) => {
-                let operator = operators.remove(index);
-                let lhv = operands.remove(index);
-                let rhv = operands.remove(index);
-
-                operands.insert(index, Expression::MathOpearation { lhv: Box::new(lhv), rhv: Box::new(rhv), operator });
+            None => {
+                if operands.len() == 1 {
+                    break;
+                } else {
+                    current_operator += 1;
+                }
             },
-            None => break,
         }
     }
     Ok(operands.remove(0))

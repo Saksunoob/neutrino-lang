@@ -203,6 +203,36 @@ fn generate_expression(asm: &mut ASM, expression: Expression, variables: &mut Va
                     asm.push_instr("MOV RDX, 0");
                     asm.push_instr("IDIV RBX")
                 },
+                crate::lexer::Operator::LessThan => {
+                    asm.push_instr("CMP RAX, RBX");
+                    asm.push_instr("SETL AL");
+                    asm.push_instr("MOVZX RAX, AL");
+                },
+                crate::lexer::Operator::GreaterThan => {
+                    asm.push_instr("CMP RAX, RBX");
+                    asm.push_instr("SETG AL");
+                    asm.push_instr("MOVZX RAX, AL");
+                },
+                crate::lexer::Operator::LessThanOrEqual => {
+                    asm.push_instr("CMP RAX, RBX");
+                    asm.push_instr("SETLE AL");
+                    asm.push_instr("MOVZX RAX, AL");
+                },
+                crate::lexer::Operator::GreaterThanOrEqual => {
+                    asm.push_instr("CMP RAX, RBX");
+                    asm.push_instr("SETGE AL");
+                    asm.push_instr("MOVZX RAX, AL");
+                },
+                crate::lexer::Operator::Equal => {
+                    asm.push_instr("CMP RAX, RBX");
+                    asm.push_instr("SETE AL");
+                    asm.push_instr("MOVZX RAX, AL");
+                },
+                crate::lexer::Operator::NotEqual => {
+                    asm.push_instr("CMP RAX, RBX");
+                    asm.push_instr("SETNE AL");
+                    asm.push_instr("MOVZX RAX, AL");
+                },
             }
         },
         Expression::FunctionCall(call) => {

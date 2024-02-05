@@ -8,40 +8,35 @@ pub fn tokenize(file: &String) -> Tokens {
     let mut line = 1;
     let mut column = 0;
 
+    let mut buffer = Vec::new();
+    let mut buffer_start = (column+1, line);
+
     loop {
-        let mut buffer = Vec::new();
-        let buffer_start = (column+1, line);
-
-        loop {
-            column += 1;
-            if let Some(char) = chars.next() {
-                if SpecialSymbol::match_char(&char) || Operator::match_char(&char) {
-                    if buffer.len() > 0 {
-                        tokens.push(Token::from_buffer(buffer), buffer_start);
-                    }
-                    let token = Token::from_buffer(vec![char]);
-                    tokens.push(token, (column, line));
-                    break;
-                }
-                else if char.is_ascii_whitespace() {
-                    if buffer.len() > 0 {
-                        tokens.push(Token::from_buffer(buffer), buffer_start);
-                    }
-                    if char == '\n' {
-                        line += 1;
-                        column = 0;
-                    }
-                    break;
-                }
+        column += 1;
+        if let Some(char) = chars.next() {
+            if char == '\n' {
+                line += 1;
+                column = 1;
+            }
+            if Token::expect_char(&buffer, &char) {
                 buffer.push(char);
-
             } else {
                 if buffer.len() > 0 {
-                    tokens.push(Token::from_buffer(buffer), buffer_start);
+                    println!("adding {buffer:?} to tokens");
+                    tokens.push(Token::from_buffer(&buffer).unwrap(), buffer_start);
                 }
-                tokens.push(Token::EOF, (column, line));    
-                return tokens;
+                buffer = Vec::new();
+                if Token::expect_char(&buffer, &char) {
+                    buffer.push(char)
+                }
+                buffer_start = (column, line);
             }
+        } else {
+            if buffer.len() > 0 {
+                tokens.push(Token::from_buffer(&buffer).unwrap(), buffer_start);
+            }
+            tokens.push(Token::EOF, (column, line));    
+            return tokens;
         }
     }
 }
@@ -157,33 +152,48 @@ pub enum Token {
 }
 
 impl Token {
-    pub fn from_buffer(buffer: Vec<char>) -> Token {
+    pub fn from_buffer(buffer: &Vec<char>) -> Option<Token> {
         let string: String = buffer.into_iter().collect();
 
         if let Some(keyword) = Keyword::from_string(&string) {
-            return Token::Keyword(keyword);
+            return Some(Token::Keyword(keyword));
         }
         if let Some(type_) = Type::from_string(&string) {
-            return Token::Type(type_);
+            return Some(Token::Type(type_));
         }
         if let Some(symbol) = SpecialSymbol::from_string(&string) {
-            return Token::SpecialSymbol(symbol);
+            return Some(Token::SpecialSymbol(symbol));
         }
         if let Some(operator) = Operator::from_string(&string) {
-            return Token::Operator(operator);
+            return Some(Token::Operator(operator));
         }
         if let Some(value) = Value::from_string(&string) {
-            return Token::Value(value);
+            return Some(Token::Value(value));
+        }
+        if let Some(id) = id_from_string(&string) {
+            return Some(Token::Identifier(id));
         }
 
-        return Token::Identifier(string);
+        return None;
+    }
+    pub fn expect_char(buffer: &Vec<char>, char: &char) -> bool {
+        if char.is_whitespace() {
+            return false;
+        }
+        if buffer.get(0).is_some() {
+            let mut buffer = buffer.clone();
+            buffer.push(*char);
+            Token::from_buffer(&buffer).is_some()
+        } else {
+            return true;
+        }
     }
 }
 impl Display for Token {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Token::EOF => write!(f, "EOF"),
-            Token::Identifier(id) => write!(f, "\"{id}\""),
+            Token::Identifier(id) => write!(f, "\"{}\"", id),
             Token::Keyword(keyword) => {
                 match keyword {
                     Keyword::Function => write!(f, "Function"),
@@ -226,6 +236,12 @@ impl Display for Token {
                     Operator::Minus => write!(f, "-"),
                     Operator::Multiply => write!(f, "*"),
                     Operator::Divide => write!(f, "/"),
+                    Operator::LessThan => write!(f, "<"),
+                    Operator::GreaterThan => write!(f, ">"),
+                    Operator::LessThanOrEqual => write!(f, "<="),
+                    Operator::GreaterThanOrEqual => write!(f, ">="),
+                    Operator::Equal => write!(f, "=="),
+                    Operator::NotEqual => write!(f, "!="),
                 }
             },
         }
@@ -312,6 +328,9 @@ pub enum Value {
 }
 impl Value {
     pub fn from_string(string: &String) -> Option<Value> {
+        if string.chars().next().unwrap() == '+' {
+            return None;
+        }
         if let Some(int) = string.parse::<i64>().ok() {
             return Some(Self::Integer(int));
         }
@@ -377,9 +396,6 @@ impl SpecialSymbol {
             _ => None
         }
     }
-    pub fn match_char(char: &char) -> bool {
-        Self::from_string(&char.to_string()).is_some()
-    }
 }
 
 #[cfg(test)]
@@ -397,18 +413,6 @@ mod special_symbol_tests {
         assert_eq!(SpecialSymbol::from_string(&",".to_string()), Some(SpecialSymbol::Comma));
         assert_eq!(SpecialSymbol::from_string(&"invalid".to_string()), None);
     }
-
-    #[test]
-    fn test_special_symbol_match_char() {
-        assert_eq!(SpecialSymbol::match_char(&'='), true);
-        assert_eq!(SpecialSymbol::match_char(&';'), true);
-        assert_eq!(SpecialSymbol::match_char(&'('), true);
-        assert_eq!(SpecialSymbol::match_char(&')'), true);
-        assert_eq!(SpecialSymbol::match_char(&'{'), true);
-        assert_eq!(SpecialSymbol::match_char(&'}'), true);
-        assert_eq!(SpecialSymbol::match_char(&','), true);
-        assert_eq!(SpecialSymbol::match_char(&'a'), false);
-    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -416,7 +420,13 @@ pub enum Operator {
     Plus,
     Minus,
     Multiply,
-    Divide
+    Divide,
+    LessThan,
+    GreaterThan,
+    LessThanOrEqual,
+    GreaterThanOrEqual,
+    Equal,
+    NotEqual
 }
 impl Operator {
     pub fn from_string(string: &String) -> Option<Operator> {
@@ -425,11 +435,22 @@ impl Operator {
             "-" => Some(Operator::Minus),
             "*" => Some(Operator::Multiply),
             "/" => Some(Operator::Divide),
+            "<" => Some(Operator::LessThan),
+            ">" => Some(Operator::GreaterThan),
+            "<=" => Some(Operator::LessThanOrEqual),
+            ">=" => Some(Operator::GreaterThanOrEqual),
+            "==" => Some(Operator::Equal),
+            "!=" => Some(Operator::NotEqual),
             _ => None
         }
     }
-    pub fn match_char(char: &char) -> bool {
-        Self::from_string(&char.to_string()).is_some()
+    pub fn get_operation_order(&self) -> usize {
+        match self {
+            Operator::Multiply | Operator::Divide => 0,
+            Operator::Plus | Operator::Minus => 1,
+            Operator::LessThan | Operator::GreaterThan | Operator::LessThanOrEqual
+            | Operator::GreaterThanOrEqual | Operator::Equal | Operator::NotEqual => 2,
+        }
     }
 }
 
@@ -445,13 +466,44 @@ mod operator_tests {
         assert_eq!(Operator::from_string(&"/".to_string()), Some(Operator::Divide));
         assert_eq!(Operator::from_string(&"invalid".to_string()), None);
     }
+}
+
+pub fn id_from_string(id: &String) -> Option<String> {
+    if id.is_empty() {
+        return None;
+    }
+    // Check if the identifier is a keyword
+    if Keyword::from_string(id).is_some() {
+        return None;
+    }
+
+    let mut chars = id.chars().peekable();
+
+    // Check if the identifier starts with a number
+    if chars.peek().is_some_and(|char| char.is_ascii_digit()) {
+        return None;
+    }
+    
+    // Check if the contains only allowed characters
+    for char in chars {
+        if !(char.is_ascii_alphanumeric() || char == '_') {
+           return None;
+        }
+    }
+    return Some( id.clone() );
+}
+
+#[cfg(test)]
+mod id_from_string_test {
+    use super::*;
 
     #[test]
-    fn test_operator_match_char() {
-        assert_eq!(Operator::match_char(&'+'), true);
-        assert_eq!(Operator::match_char(&'-'), true);
-        assert_eq!(Operator::match_char(&'*'), true);
-        assert_eq!(Operator::match_char(&'/'), true);
-        assert_eq!(Operator::match_char(&'a'), false);
+    fn test_id_from_string() {
+        assert_eq!(id_from_string(&"".to_string()), None);
+        assert_eq!(id_from_string(&"1invalid".to_string()), None);
+        assert_eq!(id_from_string(&"valid_id".to_string()), Some("valid_id".to_string()));
+        assert_eq!(id_from_string(&"invalid@id".to_string()), None);
+        assert_eq!(id_from_string(&"invalid id".to_string()), None);
+        assert_eq!(id_from_string(&"extern".to_string()), None);
     }
 }

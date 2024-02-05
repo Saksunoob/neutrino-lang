@@ -69,36 +69,6 @@ pub fn parse_extern(tokens: &mut Tokens) -> Result<String, ParseError> {
     }
 }
 
-#[cfg(test)]
-mod parse_extern_tests {
-    use super::*;
-
-    #[test]
-    fn test_parse_extern_valid() {
-        let mut tokens = Tokens::from_vec(vec![
-            Token::Keyword(Keyword::External),
-            Token::Identifier("valid_module".to_string()),
-            Token::SpecialSymbol(SpecialSymbol::Terminator)
-        ]);
-
-        let result = parse_extern(&mut tokens);
-        assert!(result.is_ok());
-        assert_eq!(result.unwrap(), "valid_module");
-    }
-
-    #[test]
-    fn test_parse_extern_invalid() {
-        let mut tokens = Tokens::from_vec(vec![
-            Token::Keyword(Keyword::External),
-            Token::Identifier("invalid_module".to_string())
-            // Missing Terminator
-        ]);
-
-        let result = parse_extern(&mut tokens);
-        assert!(result.is_err());
-    }
-}
-
 pub fn parse_function(tokens: &mut Tokens) -> Result<Function, ParseError> {
     // Consume Function token
     match tokens.next() {
@@ -173,49 +143,6 @@ pub fn parse_function(tokens: &mut Tokens) -> Result<Function, ParseError> {
     })
 }
 
-#[cfg(test)]
-mod parse_function_tests {
-    use super::*;
-
-    #[test]
-    fn test_parse_function_valid() {
-        let mut tokens = Tokens::from_vec(vec![
-            Token::Keyword(Keyword::Function),
-            Token::Identifier("test_func".to_string()),
-            Token::SpecialSymbol(SpecialSymbol::OpenParen),
-            Token::Identifier("x".to_string()),
-            Token::Type(Type::Integer),
-            Token::SpecialSymbol(SpecialSymbol::Comma),
-            Token::Identifier("y".to_string()),
-            Token::Type(Type::Integer),
-            Token::SpecialSymbol(SpecialSymbol::CloseParen),
-            Token::Type(Type::Void),
-            Token::SpecialSymbol(SpecialSymbol::OpenBracket),
-            Token::SpecialSymbol(SpecialSymbol::CloseBracket),
-        ]);
-
-        let result = parse_function(&mut tokens);
-        assert!(result.is_ok());
-
-        let function = result.unwrap();
-        assert_eq!(function.name, "test_func");
-        assert_eq!(function.arguments, vec![("x".to_string(), Type::Integer), ("y".to_string(), Type::Integer)]);
-    }
-
-    #[test]
-    fn test_parse_function_invalid() {
-        let mut tokens = Tokens::from_vec(vec![
-            Token::Keyword(Keyword::Function),
-            Token::Identifier("test_func".to_string()),
-            Token::SpecialSymbol(SpecialSymbol::OpenBracket),
-            Token::SpecialSymbol(SpecialSymbol::CloseBracket),
-        ]);
-
-        let result = parse_function(&mut tokens);
-        assert!(result.is_err());
-    }
-}
-
 fn parse_block(tokens: &mut Tokens, return_type: Type, variables: &mut HashMap<String, Type>) -> Result<Block, ParseError> {
     match tokens.next() {
         Token::SpecialSymbol(SpecialSymbol::OpenBracket) => Ok(()),
@@ -237,50 +164,6 @@ fn parse_block(tokens: &mut Tokens, return_type: Type, variables: &mut HashMap<S
         return_type,
         instructions,
     });
-}
-
-#[cfg(test)]
-mod parse_closure_tests {
-    use super::*;
-    use crate::lexer::{Type, SpecialSymbol, Token, Tokens};
-
-    #[test]
-    fn test_parse_closure_valid() {
-        let return_type = Type::Integer;
-        let mut variables = vec![
-            ("param1".to_string(), Type::Integer),
-            ("param2".to_string(), Type::Float),
-        ].into_iter().collect();
-        let tokens = &mut Tokens::from_vec(vec![
-            Token::SpecialSymbol(SpecialSymbol::OpenBracket),
-            Token::Keyword(Keyword::Return),
-            Token::Identifier("param1".to_string()),
-            Token::SpecialSymbol(SpecialSymbol::Terminator),
-            Token::SpecialSymbol(SpecialSymbol::CloseBracket),
-        ]);
-
-        let result = parse_block(tokens, return_type, &mut variables);
-        assert!(result.is_ok());
-        let closure = result.unwrap();
-        assert_eq!(closure.return_type, Type::Integer);
-        assert_eq!(closure.instructions.len(), 1);
-        match &closure.instructions[0] {
-            Instruction::Return(Expression::Variable(param)) => assert_eq!(param, "param1"),
-            _ => panic!("Invalid instruction"),
-        }
-    }
-
-    #[test]
-    fn test_parse_instruction_invalid() {
-        let mut tokens = Tokens::from_vec(vec![
-            Token::Keyword(Keyword::Declaration),
-            Token::SpecialSymbol(SpecialSymbol::CloseBracket),  // Invalid token after assignment
-        ]);
-        let mut variables = HashMap::new();
-
-        let result = parse_instruction(&mut tokens, &mut variables);
-        assert!(result.is_err());
-    }
 }
 
 fn parse_instruction(tokens: &mut Tokens, variables: &mut HashMap<String, Type>) -> Result<Instruction, ParseError> {
@@ -342,46 +225,6 @@ fn parse_instruction(tokens: &mut Tokens, variables: &mut HashMap<String, Type>)
     }
 }
 
-#[cfg(test)]
-mod parse_instruction_tests {
-    use super::*;
-    use crate::lexer::{Type, SpecialSymbol, Token, Tokens};
-
-    #[test]
-    fn test_parse_instruction_valid() {
-        let mut variables = HashMap::new();
-        let mut tokens = Tokens::from_vec(vec![
-            Token::Keyword(Keyword::Return),
-            Token::Identifier("variable".to_string()),
-            Token::SpecialSymbol(SpecialSymbol::Terminator),
-        ]);
-
-        variables.insert("variable".to_string(), Type::Integer);
-
-        let result = parse_instruction(&mut tokens, &mut variables);
-        assert!(result.is_ok());
-        let instruction = result.unwrap();
-
-        match instruction {
-            Instruction::Return(Expression::Variable(var)) => assert_eq!(var, "variable"),
-            _ => panic!("Invalid instruction"),
-        }
-    }
-
-    #[test]
-    fn test_parse_instruction_invalid() {
-        let mut variables = HashMap::new();
-        let mut tokens = Tokens::from_vec(vec![
-            Token::Keyword(Keyword::Function),
-            Token::Identifier("something".to_string()),
-            Token::SpecialSymbol(SpecialSymbol::Terminator),
-        ]);
-
-        let result = parse_instruction(&mut tokens, &mut variables);
-        assert!(result.is_err());
-    }
-}
-
 fn parse_function_call(function: String, tokens: &mut Tokens, variables: &mut HashMap<String, Type>) -> Result<FunctionCall, ParseError> {
     let parameters = match tokens.next() {
         Token::SpecialSymbol(SpecialSymbol::OpenParen) => {
@@ -404,47 +247,6 @@ fn parse_function_call(function: String, tokens: &mut Tokens, variables: &mut Ha
         }
     }?;
     Ok(FunctionCall::new(function, parameters))
-}
-
-#[cfg(test)]
-mod parse_function_call_tests {
-    use super::*;
-    use crate::lexer::{Token, SpecialSymbol, Type};
-
-    #[test]
-    fn test_parse_function_call_valid() {
-        let mut tokens = Tokens::from_vec(vec![
-            Token::SpecialSymbol(SpecialSymbol::OpenParen),
-            Token::Value(Value::Integer(5)),
-            Token::SpecialSymbol(SpecialSymbol::Comma),
-            Token::Value(Value::Integer(10)),
-            Token::SpecialSymbol(SpecialSymbol::CloseParen)
-        ]);
-
-        let mut variables: HashMap<String, Type> = HashMap::new();
-
-        let result = parse_function_call("test_function".to_string(), &mut tokens, &mut variables);
-        assert!(result.is_ok());
-
-        let function_call = result.unwrap();
-        assert_eq!(function_call.function, "test_function");
-        assert_eq!(function_call.parameters.len(), 2);
-    }
-
-    #[test]
-    fn test_parse_function_call_invalid() {
-        let mut tokens = Tokens::from_vec(vec![
-            Token::SpecialSymbol(SpecialSymbol::OpenParen),
-            Token::Value(Value::Integer(5)),
-            Token::SpecialSymbol(SpecialSymbol::Comma),
-            Token::SpecialSymbol(SpecialSymbol::CloseBracket)
-        ]);
-
-        let mut variables: HashMap<String, Type> = HashMap::new();
-
-        let result = parse_function_call("test_function".to_string(), &mut tokens, &mut variables);
-        assert!(result.is_err());
-    }
 }
 
 fn parse_expression(tokens: &mut Tokens, variables: &mut HashMap<String, Type>) -> Result<Expression, ParseError> {
@@ -548,52 +350,6 @@ fn parse_expression(tokens: &mut Tokens, variables: &mut HashMap<String, Type>) 
     Ok(operands.remove(0))
 }
 
-#[cfg(test)]
-mod parse_expression_tests {
-    use super::*;
-    use crate::lexer::{Token, SpecialSymbol};
-
-    #[test]
-    fn test_parse_expression_valid() {
-        let mut tokens = Tokens::from_vec(vec![
-            Token::Value(Value::Integer(5)),
-            Token::Operator(Operator::Plus),
-            Token::Value(Value::Integer(3)),
-            Token::SpecialSymbol(SpecialSymbol::CloseParen)
-        ]);
-        let mut variables = HashMap::new();
-        let result = parse_expression(&mut tokens, &mut variables);
-
-        match result {
-            Ok(expression) => {
-                match expression {
-                    Expression::MathOpearation { lhv, rhv, operator } => {
-                        assert_eq!(*lhv, Expression::Value(Value::Integer(5)));
-                        assert_eq!(operator, Operator::Plus);
-                        assert_eq!(*rhv, Expression::Value(Value::Integer(3)));
-                    },
-                    _ => panic!("Unexpected expression type!")
-                }
-            },
-            Err(err) => panic!("Parsing failed!\n{err}")
-        }
-        assert_eq!(tokens.next(), Token::SpecialSymbol(SpecialSymbol::CloseParen));
-    }
-
-    #[test]
-    fn test_parse_expression_invalid() {
-        let mut tokens = Tokens::from_vec(vec![
-            Token::Value(Value::Integer(5)),
-            Token::Operator(Operator::Plus),
-            // Missing second operand
-        ]);
-        let mut variables = HashMap::new();
-        let result = parse_expression(&mut tokens, &mut variables);
-
-        assert!(result.is_err());
-    }
-}
-
 #[derive(Debug)]
 pub struct SyntaxTree {
     pub externs: Vec<String>,
@@ -671,5 +427,208 @@ pub struct FunctionCall {
 impl FunctionCall {
     pub fn new(function: String, parameters: Vec<Expression>) -> Self {
         Self { function, parameters }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::lexer::{Token, Value, Operator, SpecialSymbol};
+    
+    #[test]
+    fn test_parse_expression_valid() {
+        let mut tokens = Tokens::from_vec(vec![
+            Token::Value(Value::Integer(5)),
+            Token::Operator(Operator::Plus),
+            Token::Value(Value::Integer(3)),
+            Token::SpecialSymbol(SpecialSymbol::CloseParen)
+        ]);
+        let mut variables = HashMap::new();
+        let result = parse_expression(&mut tokens, &mut variables);
+
+        match result {
+            Ok(expression) => {
+                match expression {
+                    Expression::MathOpearation { lhv, rhv, operator } => {
+                        assert_eq!(*lhv, Expression::Value(Value::Integer(5)));
+                        assert_eq!(operator, Operator::Plus);
+                        assert_eq!(*rhv, Expression::Value(Value::Integer(3)));
+                    },
+                    _ => panic!("Unexpected expression type!")
+                }
+            },
+            Err(err) => panic!("Parsing failed!\n{err}")
+        }
+        assert_eq!(tokens.next(), Token::SpecialSymbol(SpecialSymbol::CloseParen));
+    }
+
+    #[test]
+    fn test_parse_expression_invalid() {
+        let mut tokens = Tokens::from_vec(vec![
+            Token::Value(Value::Integer(5)),
+            Token::Operator(Operator::Plus),
+            // Missing second operand
+        ]);
+        let mut variables = HashMap::new();
+        let result = parse_expression(&mut tokens, &mut variables);
+
+        assert!(result.is_err());
+    }
+
+
+    #[test]
+    fn test_parse_function_call_valid() {
+        let mut tokens = Tokens::from_vec(vec![
+            Token::SpecialSymbol(SpecialSymbol::OpenParen),
+            Token::Value(Value::Integer(5)),
+            Token::SpecialSymbol(SpecialSymbol::Comma),
+            Token::Value(Value::Integer(10)),
+            Token::SpecialSymbol(SpecialSymbol::CloseParen)
+        ]);
+
+        let mut variables: HashMap<String, Type> = HashMap::new();
+
+        let result = parse_function_call("test_function".to_string(), &mut tokens, &mut variables);
+        assert!(result.is_ok());
+
+        let function_call = result.unwrap();
+        assert_eq!(function_call.function, "test_function");
+        assert_eq!(function_call.parameters.len(), 2);
+    }
+
+    #[test]
+    fn test_parse_function_call_invalid() {
+        let mut tokens = Tokens::from_vec(vec![
+            Token::SpecialSymbol(SpecialSymbol::OpenParen),
+            Token::Value(Value::Integer(5)),
+            Token::SpecialSymbol(SpecialSymbol::Comma),
+            Token::SpecialSymbol(SpecialSymbol::CloseBracket)
+        ]);
+
+        let mut variables: HashMap<String, Type> = HashMap::new();
+
+        let result = parse_function_call("test_function".to_string(), &mut tokens, &mut variables);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_parse_instruction_valid() {
+        let mut variables = HashMap::new();
+        let mut tokens = Tokens::from_vec(vec![
+            Token::Keyword(Keyword::Return),
+            Token::Identifier("variable".to_string()),
+            Token::SpecialSymbol(SpecialSymbol::Terminator),
+        ]);
+
+        variables.insert("variable".to_string(), Type::Integer);
+
+        let result = parse_instruction(&mut tokens, &mut variables);
+        assert!(result.is_ok());
+        let instruction = result.unwrap();
+
+        match instruction {
+            Instruction::Return(Expression::Variable(var)) => assert_eq!(var, "variable"),
+            _ => panic!("Invalid instruction"),
+        }
+    }
+
+    #[test]
+    fn test_parse_instruction_invalid() {
+        let mut variables = HashMap::new();
+        let mut tokens = Tokens::from_vec(vec![
+            Token::Keyword(Keyword::Function),
+            Token::Identifier("something".to_string()),
+            Token::SpecialSymbol(SpecialSymbol::Terminator),
+        ]);
+
+        let result = parse_instruction(&mut tokens, &mut variables);
+        assert!(result.is_err());
+        }
+
+    #[test]
+    fn test_parse_closure_valid() {
+        let return_type = Type::Integer;
+        let mut variables = vec![
+            ("param1".to_string(), Type::Integer),
+            ("param2".to_string(), Type::Float),
+        ].into_iter().collect();
+        let tokens = &mut Tokens::from_vec(vec![
+            Token::SpecialSymbol(SpecialSymbol::OpenBracket),
+            Token::Keyword(Keyword::Return),
+            Token::Identifier("param1".to_string()),
+            Token::SpecialSymbol(SpecialSymbol::Terminator),
+            Token::SpecialSymbol(SpecialSymbol::CloseBracket),
+        ]);
+
+        let result = parse_block(tokens, return_type, &mut variables);
+        assert!(result.is_ok());
+        let closure = result.unwrap();
+        assert_eq!(closure.return_type, Type::Integer);
+        assert_eq!(closure.instructions.len(), 1);
+        match &closure.instructions[0] {
+            Instruction::Return(Expression::Variable(param)) => assert_eq!(param, "param1"),
+            _ => panic!("Invalid instruction"),
+        }
+    }
+    #[test]
+    fn test_parse_function_valid() {
+        let mut tokens = Tokens::from_vec(vec![
+            Token::Keyword(Keyword::Function),
+            Token::Identifier("test_func".to_string()),
+            Token::SpecialSymbol(SpecialSymbol::OpenParen),
+            Token::Identifier("x".to_string()),
+            Token::Type(Type::Integer),
+            Token::SpecialSymbol(SpecialSymbol::Comma),
+            Token::Identifier("y".to_string()),
+            Token::Type(Type::Integer),
+            Token::SpecialSymbol(SpecialSymbol::CloseParen),
+            Token::Type(Type::Void),
+            Token::SpecialSymbol(SpecialSymbol::OpenBracket),
+            Token::SpecialSymbol(SpecialSymbol::CloseBracket),
+        ]);
+
+        let result = parse_function(&mut tokens);
+        assert!(result.is_ok());
+
+        let function = result.unwrap();
+        assert_eq!(function.name, "test_func");
+        assert_eq!(function.arguments, vec![("x".to_string(), Type::Integer), ("y".to_string(), Type::Integer)]);
+    }
+
+    #[test]
+    fn test_parse_function_invalid() {
+        let mut tokens = Tokens::from_vec(vec![
+            Token::Keyword(Keyword::Function),
+            Token::Identifier("test_func".to_string()),
+            Token::SpecialSymbol(SpecialSymbol::OpenBracket),
+            Token::SpecialSymbol(SpecialSymbol::CloseBracket),
+        ]);
+
+        let result = parse_function(&mut tokens);
+        assert!(result.is_err());
+    }
+    #[test]
+    fn test_parse_extern_valid() {
+        let mut tokens = Tokens::from_vec(vec![
+            Token::Keyword(Keyword::External),
+            Token::Identifier("valid_module".to_string()),
+            Token::SpecialSymbol(SpecialSymbol::Terminator)
+        ]);
+
+        let result = parse_extern(&mut tokens);
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap(), "valid_module");
+    }
+
+    #[test]
+    fn test_parse_extern_invalid() {
+        let mut tokens = Tokens::from_vec(vec![
+            Token::Keyword(Keyword::External),
+            Token::Identifier("invalid_module".to_string())
+            // Missing Terminator
+        ]);
+
+        let result = parse_extern(&mut tokens);
+        assert!(result.is_err());
     }
 }

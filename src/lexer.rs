@@ -41,43 +41,6 @@ pub fn tokenize(file: &String) -> Tokens {
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_tokenize() {
-        let input = "fn calculate(a, b) { let sum = a + b; ret sum * 2; }".to_string();
-        let expected_tokens = Tokens::from_vec(vec![
-            Token::Keyword(Keyword::Function),
-            Token::Identifier("calculate".to_string()),
-            Token::SpecialSymbol(SpecialSymbol::OpenParen),
-            Token::Identifier("a".to_string()),
-            Token::SpecialSymbol(SpecialSymbol::Comma),
-            Token::Identifier("b".to_string()),
-            Token::SpecialSymbol(SpecialSymbol::CloseParen),
-            Token::SpecialSymbol(SpecialSymbol::OpenBracket),
-            Token::Keyword(Keyword::Declaration),
-            Token::Identifier("sum".to_string()),
-            Token::SpecialSymbol(SpecialSymbol::Equals),
-            Token::Identifier("a".to_string()),
-            Token::Operator(Operator::Plus),
-            Token::Identifier("b".to_string()),
-            Token::SpecialSymbol(SpecialSymbol::Terminator),
-            Token::Keyword(Keyword::Return),
-            Token::Identifier("sum".to_string()),
-            Token::Operator(Operator::Multiply),
-            Token::Value(Value::Integer(2)),
-            Token::SpecialSymbol(SpecialSymbol::Terminator),
-            Token::SpecialSymbol(SpecialSymbol::CloseBracket),
-            Token::EOF
-        ]);
-
-        let result_tokens = tokenize(&input);
-        assert_eq!(result_tokens, expected_tokens);
-    }
-}
-
 #[derive(Debug)]
 pub struct Tokens {
     tokens: VecDeque<Token>,
@@ -272,20 +235,6 @@ impl Keyword {
     }
 }
 
-#[cfg(test)]
-mod keyword_tests {
-    use super::*;
-
-    #[test]
-    fn test_keyword_from_string() {
-        assert_eq!(Keyword::from_string(&"fn".to_string()), Some(Keyword::Function));
-        assert_eq!(Keyword::from_string(&"let".to_string()), Some(Keyword::Declaration));
-        assert_eq!(Keyword::from_string(&"ret".to_string()), Some(Keyword::Return));
-        assert_eq!(Keyword::from_string(&"extern".to_string()), Some(Keyword::External));
-        assert_eq!(Keyword::from_string(&"invalid".to_string()), None);
-    }
-}
-
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum Type {
     Void,
@@ -302,20 +251,6 @@ impl Type {
             "bool" => Some(Self::Boolean),
             _ => None
         }
-    }
-}
-
-#[cfg(test)]
-mod type_tests {
-    use super::*;
-
-    #[test]
-    fn test_type_from_string() {
-        assert_eq!(Type::from_string(&"void".to_string()), Some(Type::Void));
-        assert_eq!(Type::from_string(&"int".to_string()), Some(Type::Integer));
-        assert_eq!(Type::from_string(&"float".to_string()), Some(Type::Float));
-        assert_eq!(Type::from_string(&"bool".to_string()), Some(Type::Boolean));
-        assert_eq!(Type::from_string(&"invalid".to_string()), None);
     }
 }
 
@@ -352,27 +287,6 @@ impl Value {
     }
 }
 
-#[cfg(test)]
-mod value_tests {
-    use super::*;
-
-    #[test]
-    fn test_value_from_string() {
-        assert_eq!(Value::from_string(&"123".to_string()), Some(Value::Integer(123)));
-        assert_eq!(Value::from_string(&"123.456".to_string()), Some(Value::Float(123.456)));
-        assert_eq!(Value::from_string(&"true".to_string()), Some(Value::Boolean(true)));
-        assert_eq!(Value::from_string(&"false".to_string()), Some(Value::Boolean(false)));
-        assert_eq!(Value::from_string(&"invalid".to_string()), None);
-    }
-
-    #[test]
-    fn test_value_get_type() {
-        assert_eq!(Value::Integer(123).get_type(), Type::Integer);
-        assert_eq!(Value::Float(123.456).get_type(), Type::Float);
-        assert_eq!(Value::Boolean(true).get_type(), Type::Boolean);
-    }
-}
-
 #[derive(Clone, Copy, PartialEq, Debug)]
 pub enum SpecialSymbol {
     Equals,
@@ -398,22 +312,7 @@ impl SpecialSymbol {
     }
 }
 
-#[cfg(test)]
-mod special_symbol_tests {
-    use super::*;
 
-    #[test]
-    fn test_special_symbol_from_string() {
-        assert_eq!(SpecialSymbol::from_string(&"=".to_string()), Some(SpecialSymbol::Equals));
-        assert_eq!(SpecialSymbol::from_string(&";".to_string()), Some(SpecialSymbol::Terminator));
-        assert_eq!(SpecialSymbol::from_string(&"(".to_string()), Some(SpecialSymbol::OpenParen));
-        assert_eq!(SpecialSymbol::from_string(&")".to_string()), Some(SpecialSymbol::CloseParen));
-        assert_eq!(SpecialSymbol::from_string(&"{".to_string()), Some(SpecialSymbol::OpenBracket));
-        assert_eq!(SpecialSymbol::from_string(&"}".to_string()), Some(SpecialSymbol::CloseBracket));
-        assert_eq!(SpecialSymbol::from_string(&",".to_string()), Some(SpecialSymbol::Comma));
-        assert_eq!(SpecialSymbol::from_string(&"invalid".to_string()), None);
-    }
-}
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum Operator {
@@ -454,20 +353,6 @@ impl Operator {
     }
 }
 
-#[cfg(test)]
-mod operator_tests {
-    use super::*;
-
-    #[test]
-    fn test_operator_from_string() {
-        assert_eq!(Operator::from_string(&"+".to_string()), Some(Operator::Plus));
-        assert_eq!(Operator::from_string(&"-".to_string()), Some(Operator::Minus));
-        assert_eq!(Operator::from_string(&"*".to_string()), Some(Operator::Multiply));
-        assert_eq!(Operator::from_string(&"/".to_string()), Some(Operator::Divide));
-        assert_eq!(Operator::from_string(&"invalid".to_string()), None);
-    }
-}
-
 pub fn id_from_string(id: &String) -> Option<String> {
     if id.is_empty() {
         return None;
@@ -494,9 +379,57 @@ pub fn id_from_string(id: &String) -> Option<String> {
 }
 
 #[cfg(test)]
-mod id_from_string_test {
+mod tests {
     use super::*;
+    
+    #[test]
+    fn test_tokenize() {
+        let input = "fn calculate(a, b) { let sum = a + b; ret sum * 2; }".to_string();
+        let expected_tokens = Tokens::from_vec(vec![
+            Token::Keyword(Keyword::Function),
+            Token::Identifier("calculate".to_string()),
+            Token::SpecialSymbol(SpecialSymbol::OpenParen),
+            Token::Identifier("a".to_string()),
+            Token::SpecialSymbol(SpecialSymbol::Comma),
+            Token::Identifier("b".to_string()),
+            Token::SpecialSymbol(SpecialSymbol::CloseParen),
+            Token::SpecialSymbol(SpecialSymbol::OpenBracket),
+            Token::Keyword(Keyword::Declaration),
+            Token::Identifier("sum".to_string()),
+            Token::SpecialSymbol(SpecialSymbol::Equals),
+            Token::Identifier("a".to_string()),
+            Token::Operator(Operator::Plus),
+            Token::Identifier("b".to_string()),
+            Token::SpecialSymbol(SpecialSymbol::Terminator),
+            Token::Keyword(Keyword::Return),
+            Token::Identifier("sum".to_string()),
+            Token::Operator(Operator::Multiply),
+            Token::Value(Value::Integer(2)),
+            Token::SpecialSymbol(SpecialSymbol::Terminator),
+            Token::SpecialSymbol(SpecialSymbol::CloseBracket),
+            Token::EOF
+        ]);
 
+        let result_tokens = tokenize(&input);
+        assert_eq!(result_tokens, expected_tokens);
+    }
+
+    #[test]
+    fn test_keyword_from_string() {
+        assert_eq!(Keyword::from_string(&"fn".to_string()), Some(Keyword::Function));
+        assert_eq!(Keyword::from_string(&"let".to_string()), Some(Keyword::Declaration));
+        assert_eq!(Keyword::from_string(&"ret".to_string()), Some(Keyword::Return));
+        assert_eq!(Keyword::from_string(&"extern".to_string()), Some(Keyword::External));
+        assert_eq!(Keyword::from_string(&"invalid".to_string()), None);
+    }
+    #[test]
+    fn test_type_from_string() {
+        assert_eq!(Type::from_string(&"void".to_string()), Some(Type::Void));
+        assert_eq!(Type::from_string(&"int".to_string()), Some(Type::Integer));
+        assert_eq!(Type::from_string(&"float".to_string()), Some(Type::Float));
+        assert_eq!(Type::from_string(&"bool".to_string()), Some(Type::Boolean));
+        assert_eq!(Type::from_string(&"invalid".to_string()), None);
+    }
     #[test]
     fn test_id_from_string() {
         assert_eq!(id_from_string(&"".to_string()), None);
@@ -505,5 +438,41 @@ mod id_from_string_test {
         assert_eq!(id_from_string(&"invalid@id".to_string()), None);
         assert_eq!(id_from_string(&"invalid id".to_string()), None);
         assert_eq!(id_from_string(&"extern".to_string()), None);
+    }
+    #[test]
+    fn test_value_from_string() {
+        assert_eq!(Value::from_string(&"123".to_string()), Some(Value::Integer(123)));
+        assert_eq!(Value::from_string(&"123.456".to_string()), Some(Value::Float(123.456)));
+        assert_eq!(Value::from_string(&"true".to_string()), Some(Value::Boolean(true)));
+        assert_eq!(Value::from_string(&"false".to_string()), Some(Value::Boolean(false)));
+        assert_eq!(Value::from_string(&"invalid".to_string()), None);
+    }
+
+    #[test]
+    fn test_value_get_type() {
+        assert_eq!(Value::Integer(123).get_type(), Type::Integer);
+        assert_eq!(Value::Float(123.456).get_type(), Type::Float);
+        assert_eq!(Value::Boolean(true).get_type(), Type::Boolean);
+    }
+
+    #[test]
+    fn test_special_symbol_from_string() {
+        assert_eq!(SpecialSymbol::from_string(&"=".to_string()), Some(SpecialSymbol::Equals));
+        assert_eq!(SpecialSymbol::from_string(&";".to_string()), Some(SpecialSymbol::Terminator));
+        assert_eq!(SpecialSymbol::from_string(&"(".to_string()), Some(SpecialSymbol::OpenParen));
+        assert_eq!(SpecialSymbol::from_string(&")".to_string()), Some(SpecialSymbol::CloseParen));
+        assert_eq!(SpecialSymbol::from_string(&"{".to_string()), Some(SpecialSymbol::OpenBracket));
+        assert_eq!(SpecialSymbol::from_string(&"}".to_string()), Some(SpecialSymbol::CloseBracket));
+        assert_eq!(SpecialSymbol::from_string(&",".to_string()), Some(SpecialSymbol::Comma));
+        assert_eq!(SpecialSymbol::from_string(&"invalid".to_string()), None);
+    }
+
+    #[test]
+    fn test_operator_from_string() {
+        assert_eq!(Operator::from_string(&"+".to_string()), Some(Operator::Plus));
+        assert_eq!(Operator::from_string(&"-".to_string()), Some(Operator::Minus));
+        assert_eq!(Operator::from_string(&"*".to_string()), Some(Operator::Multiply));
+        assert_eq!(Operator::from_string(&"/".to_string()), Some(Operator::Divide));
+        assert_eq!(Operator::from_string(&"invalid".to_string()), None);
     }
 }

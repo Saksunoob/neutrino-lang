@@ -1,10 +1,14 @@
 extern ExitProcess(int) void;
 
 fn main() void {
-    let x = 1;
-    while x < 10 {
-        x = x+1;
-    }
+    let x = cond_test();
     ExitProcess(x);
-    ret;
+}
+
+fn cond_test() int {
+    let x = 0;
+    if x == 1 {
+        ret 1;
+    }
+    ret 0;
 }

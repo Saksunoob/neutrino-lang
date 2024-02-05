@@ -234,7 +234,7 @@ fn parse_instruction(tokens: &mut Tokens, variables: &mut HashMap<String, Type>,
         },
         Token::Keyword(Keyword::If) => {
             expect_terminator = false;
-            Ok(Instruction::If { condition: parse_expression(tokens, variables, function_signatures)?, block: parse_block(tokens, Type::Void, variables, function_signatures)? })
+            Ok(Instruction::If { condition: parse_expression(tokens, variables, function_signatures)?, block: parse_block(tokens, *return_type, variables, function_signatures)? })
         },
         Token::Keyword(Keyword::While) => {
             expect_terminator = false;
@@ -243,7 +243,7 @@ fn parse_instruction(tokens: &mut Tokens, variables: &mut HashMap<String, Type>,
             if condition_type != Type::Boolean {
                 return Err(ParseError::new(format!("Expected condition type boolean but found {condition_type:?}"), tokens.get_prev_location()));
             }
-            Ok(Instruction::While { condition, block: parse_block(tokens, Type::Void, variables, function_signatures)? })
+            Ok(Instruction::While { condition, block: parse_block(tokens, *return_type, variables, function_signatures)? })
         }
         Token::Identifier(id) => {
             if variables.contains_key(&id) {
@@ -275,6 +275,10 @@ fn parse_function_call(function: String, tokens: &mut Tokens, variables: &mut Ha
         Token::SpecialSymbol(SpecialSymbol::OpenParen) => {
             let mut args = Vec::new();
             loop {
+                if let Token::SpecialSymbol(SpecialSymbol::CloseParen) = tokens.peek() {
+                    tokens.next();
+                    break;
+                }
                 args.push(parse_expression(tokens, variables, function_signatures)?);
 
                 match tokens.next() {

@@ -83,7 +83,6 @@ impl Variables {
         self.scopes.last_mut().unwrap().insert(name.to_string(), self.stack_pointer);
     }
     pub fn get_var_addr(&self, name: &String) -> usize {
-        println!("Getting var \"{name}\" from scopes: {:?} with pointer {}", self.scopes, self.stack_pointer);
         for scope in self.scopes.iter().rev() {
             if let Some(pointer) = scope.get(name) {
                 return (self.stack_pointer-pointer)*8;
@@ -106,11 +105,10 @@ impl Variables {
     pub fn push(&mut self) {
         self.stack_pointer += 1;
     }
-    pub fn close_scopes_to(&mut self, depth: usize, asm: &mut ASM) {
-        let scopes = self.scopes.drain(depth..);
-        let variable_amount: usize = scopes.map(|scope| scope.len()).sum();
-        self.stack_pointer -= variable_amount;
-        asm.push_instr(format!("ADD RSP, {}", variable_amount*8));
+    pub fn get_return_stack_add(&mut self) -> usize {
+        let scopes = &self.scopes[1..];
+        let variable_amount: usize = scopes.iter().map(|scope| scope.len()).sum();
+        variable_amount*8
     }
 }
 
@@ -154,7 +152,8 @@ fn generate_instruction(asm: &mut ASM, instruction: Instruction, variables: &mut
         },
         Instruction::Return(expr) => {
             generate_expression(asm, expr, variables);
-            variables.close_scopes_to(1, asm);
+            let return_stack_add = variables.get_return_stack_add();
+            asm.push_instr(format!("ADD RSP, {}", return_stack_add));
             asm.push_instr("RET 32");
         },
         Instruction::FunctionCall(call) => {

@@ -284,6 +284,8 @@ mod parse_closure_tests {
 }
 
 fn parse_instruction(tokens: &mut Tokens, variables: &mut HashMap<String, Type>) -> Result<Instruction, ParseError> {
+    let mut expect_terminator = true;
+
     let instruction = match tokens.next() {
         Token::Keyword(Keyword::Declaration) => {
             let id = match tokens.next() {
@@ -307,6 +309,10 @@ fn parse_instruction(tokens: &mut Tokens, variables: &mut HashMap<String, Type>)
         Token::Keyword(Keyword::Return) => {
             Ok(Instruction::Return(parse_expression(tokens, variables)?))
         },
+        Token::Keyword(Keyword::If) => {
+            expect_terminator = false;
+            Ok(Instruction::If { condition: parse_expression(tokens, variables)?, block: parse_block(tokens, Type::Void, variables)? })
+        }
         Token::Identifier(id) => {
             if variables.contains_key(&id) {
                 match tokens.next() {
@@ -322,8 +328,14 @@ fn parse_instruction(tokens: &mut Tokens, variables: &mut HashMap<String, Type>)
             Err(ParseError::new(format!("Unexpected token at the start of an instruction: {token}"), tokens.get_prev_location()))
         }
     }?;
-    tokens.next();
-    Ok(instruction)
+    if expect_terminator {
+        match tokens.next() {
+            Token::SpecialSymbol(SpecialSymbol::Terminator) => Ok(instruction),
+            token => Err(ParseError::new(format!("Unexpected token after instruction: {token}"), tokens.get_prev_location())),
+        }
+    } else {
+        Ok(instruction)
+    }
 }
 
 #[cfg(test)]
@@ -636,6 +648,10 @@ pub enum Instruction {
     },
     Return(Expression),
     FunctionCall(FunctionCall),
+    If {
+        condition: Expression,
+        block: Block
+    }
 }
 
 

@@ -4,13 +4,15 @@ use crate::{lexer::Type, parser::{Block, Expression, Function, FunctionCall, Ins
 
 struct ASM {
     externs: Vec<String>,
-    functions: Vec<(String, Vec<String>)>
+    instructions: Vec<String>,
+    counter: usize
 }
 impl ASM {
     pub fn new() -> Self {
         Self {
             externs: Vec::new(),
-            functions: Vec::new(),
+            instructions: Vec::new(),
+            counter: 0
         }
     }
     pub fn build(&self) -> String {
@@ -24,22 +26,23 @@ impl ASM {
         }
         out += "section .text\n";
 
-        for function in &self.functions {
-            out += &format!("global {}\n", function.0);
-            out += &format!("{}:\n", function.0);
-
-            for instruction in &function.1 {
-                out += &format!("\t{}\n", instruction);
-            }
-        }
+        out += &self.instructions.join("\n");
 
         out
     }
     pub fn new_function(&mut self, name: &String) {
-        self.functions.push((name.to_string(), Vec::new()))
+        self.instructions.push(format!("global {}", name));
+        self.push_label(format!("{}", name));
     }
     pub fn push_instr(&mut self, instr: impl ToString) {
-        self.functions.last_mut().unwrap().1.push(instr.to_string())
+        self.instructions.push(format!("\t{}", instr.to_string()));
+    }
+    pub fn push_label(&mut self, label: impl ToString) {
+        self.instructions.push(format!("{}:", label.to_string()));
+    }
+    pub fn get_counter(&mut self) -> usize {
+        self.counter += 1;
+        self.counter - 1
     }
 }
 
@@ -80,6 +83,7 @@ impl Variables {
         self.scopes.last_mut().unwrap().insert(name.to_string(), self.stack_pointer);
     }
     pub fn get_var_addr(&self, name: &String) -> usize {
+        println!("Getting var \"{name}\" from scopes: {:?} with pointer {}", self.scopes, self.stack_pointer);
         for scope in self.scopes.iter().rev() {
             if let Some(pointer) = scope.get(name) {
                 return (self.stack_pointer-pointer)*8;
@@ -145,7 +149,7 @@ fn generate_instruction(asm: &mut ASM, instruction: Instruction, variables: &mut
     match instruction {
         Instruction::Assignment { id, value } => {
             generate_expression(asm, value, variables);
-            let addr = variables.get_var_addr(&id)*8;
+            let addr = variables.get_var_addr(&id);
             asm.push_instr(format!("MOV [RSP+{addr}], RAX"));
         },
         Instruction::Return(expr) => {
@@ -161,6 +165,7 @@ fn generate_instruction(asm: &mut ASM, instruction: Instruction, variables: &mut
             asm.push_instr(format!("PUSH RAX"));
             variables.new_variable(&id);
         },
+        Instruction::If { condition, block } => generate_if(asm, variables, condition, block)
     }
 }
 
@@ -203,6 +208,19 @@ fn generate_expression(asm: &mut ASM, expression: Expression, variables: &mut Va
             generate_function_call(asm, call, variables)
         },
     }
+}
+
+fn generate_if(asm: &mut ASM, variables: &mut Variables, condition: Expression, block: Block) {
+    generate_expression(asm, condition, variables);
+    let counter = asm.get_counter();
+
+    asm.push_instr("CMP RAX, 0");
+    asm.push_instr(format!("JNE if_{counter}"));
+    asm.push_instr(format!("JMP end_{counter}"));
+    asm.push_label(format!("if_{counter}"));
+    generate_block(asm, block, variables);
+    asm.push_instr(format!("JMP end_{counter}"));
+    asm.push_label(format!("end_{counter}"));
 }
 
 fn generate_function_call(asm: &mut ASM, call: FunctionCall, variables: &mut Variables) {

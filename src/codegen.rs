@@ -257,14 +257,12 @@ fn generate_if(asm: &mut ASM, variables: &mut Variables, condition: Expression, 
 fn generate_while(asm: &mut ASM, variables: &mut Variables, condition: Expression, block: Block) {
     let counter = asm.get_counter();
 
-    asm.push_label(format!("eval_{counter}"));
+    asm.push_label(format!("while_{counter}"));
     generate_expression(asm, condition, variables); 
     asm.push_instr("CMP RAX, 0");
-    asm.push_instr(format!("JNE while_{counter}"));
-    asm.push_instr(format!("JMP end_{counter}"));
-    asm.push_label(format!("while_{counter}"));
+    asm.push_instr(format!("JE end_{counter}"));
     generate_block(asm, block, variables);
-    asm.push_instr(format!("JMP eval_{counter}"));
+    asm.push_instr(format!("JMP while_{counter}"));
     asm.push_label(format!("end_{counter}"));
 
 }

@@ -1,6 +1,7 @@
 use std::{collections::HashMap, process::exit};
 
-use crate::{lexer::Type, parser::{Block, Expression, Function, FunctionCall, Instruction, SyntaxTree}};
+use crate::parser::{Block, Expression, Function, FunctionCall, Instruction, SyntaxTree};
+
 
 struct ASM {
     externs: Vec<String>,
@@ -46,26 +47,45 @@ impl ASM {
     }
 }
 
+struct Variable {
+    pointer: usize,
+    size: usize
+}
+impl Variable {
+    pub fn new(pointer: usize, size: usize) -> Self {
+        Self { pointer, size }
+    }
+}
+
 struct Variables {
-    scopes: Vec<HashMap<String, usize>>,
+    scopes: Vec<HashMap<String, Variable>>,
     stack_pointer: usize
 }
 impl Variables {
-    pub fn new(input_parameters: Vec<(String, Type)>, asm: &mut ASM) -> Self {
+    pub fn new(input_parameters: &Vec<(String, usize)>, asm: &mut ASM) -> Self {
         let mut call_scope = HashMap::new();
 
-        for i in 0..input_parameters.len() {
+        let mut stack_pointer = 0;
+
+        for i in (0..input_parameters.len()).rev() {
             match i {
-                0 => asm.push_instr("MOV RCX, [RSP+8]"),
-                1 => asm.push_instr("MOV RDX, [RSP+16]"),
-                2 => asm.push_instr("MOV R8, [RSP+24]"),
-                3 => asm.push_instr("MOV R9, [RSP+32]"),
+                0 => asm.push_instr("MOV [RSP+8], RCX"),
+                1 => asm.push_instr("MOV [RSP+16], RDX"),
+                2 => asm.push_instr("MOV [RSP+24], R8"),
+                3 => asm.push_instr("MOV [RSP+32], R9"),
                 _ => ()
             }
-            call_scope.insert(input_parameters[i].0.clone(), input_parameters.len() - i);
+            if i > 3 {
+                stack_pointer += input_parameters[i].1;
+                call_scope.insert(input_parameters[i].0.clone(), Variable::new(stack_pointer, input_parameters[i].1));
+            } else {
+                stack_pointer += 8;
+                call_scope.insert(input_parameters[i].0.clone(), Variable::new(stack_pointer, input_parameters[i].1));
+            }
+            
         }
 
-        let stack_pointer = input_parameters.len()+1; // +1 for return address
+        stack_pointer += 8; // +8 for return address
 
         Variables { scopes: vec![call_scope, HashMap::new()], stack_pointer }
     }
@@ -74,41 +94,60 @@ impl Variables {
     }
     pub fn close_scope(&mut self, asm: &mut ASM) {
         let vars = self.scopes.pop().unwrap();
-        self.stack_pointer -= vars.len();
+        let scope_size = vars.values().into_iter().map(|var| var.size).sum::<usize>();
+        self.stack_pointer -= scope_size;
 
-        asm.push_instr(format!("ADD RSP, {}", vars.len()*8));
+        asm.push_instr(format!("ADD RSP, {}", scope_size));
     }
-    pub fn new_variable(&mut self, name: &String) {
-        self.stack_pointer += 1;
-        self.scopes.last_mut().unwrap().insert(name.to_string(), self.stack_pointer);
+    pub fn new_variable(&mut self, name: &String, size: usize) {
+        self.stack_pointer += size;
+        self.scopes.last_mut().unwrap().insert(name.to_string(), Variable::new(self.stack_pointer, size));
     }
     pub fn get_var_addr(&self, name: &String) -> usize {
         for scope in self.scopes.iter().rev() {
-            if let Some(pointer) = scope.get(name) {
-                return (self.stack_pointer-pointer)*8;
+            if let Some(var) = scope.get(name) {
+                println!("{}: {}-{}", name, self.stack_pointer, var.pointer);
+                return self.stack_pointer-var.pointer;
             }
         }
         eprintln!("Variable {name} not found");
         exit(1)
     }
-    pub fn pop(&mut self) {
+    pub fn generate_load_var_to(&self, asm: &mut ASM, var: &String, size: usize, reg: &str) {
+        let addr = self.get_var_addr(var);
+        self.generate_load_addr_to(asm, addr, size, reg);
+    }
+    pub fn generate_load_addr_to(&self, asm: &mut ASM, addr: usize, size: usize, reg: &str) {
+        if size == 8 {
+            asm.push_instr(format!("MOV {reg}, [RSP+{addr}]"));
+        } else {
+            let size_id = match size {
+                1 => "BYTE",
+                2 => "WORD",
+                4 => "DWORD",
+                _ => unreachable!(),
+            };
+            asm.push_instr(format!("MOVZX {reg}, {size_id} [RSP+{addr}]"));
+        }
+    }
+    pub fn pop(&mut self, size: usize) {
         let last = self.scopes.last_mut().unwrap();
 
-        let var = last.iter().find(|(_, pointer)| **pointer == self.stack_pointer);
+        let var = last.iter().find(|(_, var)| var.pointer == self.stack_pointer);
         if var.is_some() {
             let var = var.unwrap().0.clone();
             last.remove(&var);
         }
 
-        self.stack_pointer -= 1;
+        self.stack_pointer -= size;
     }
-    pub fn push(&mut self) {
-        self.stack_pointer += 1;
+    pub fn push(&mut self, size: usize) {
+        self.stack_pointer += size;
     }
     pub fn get_return_stack_add(&mut self) -> usize {
         let scopes = &self.scopes[1..];
-        let variable_amount: usize = scopes.iter().map(|scope| scope.len()).sum();
-        variable_amount*8
+        let variable_amount: usize = scopes.iter().flat_map(|scope| scope.iter().map(|(_, var)| var.size)).sum();
+        variable_amount
     }
 }
 
@@ -120,30 +159,30 @@ pub fn generate(syntax_tree: SyntaxTree) -> String {
     }
 
     for function in syntax_tree.functions {
-        generate_function(&mut asm, function);
+        generate_function(&mut asm, &function);
     }
 
     asm.build()
 }
 
-fn generate_function(asm: &mut ASM, function: Function) {
+fn generate_function(asm: &mut ASM, function: &Function) {
     asm.new_function(&function.name);
 
-    let mut variables = Variables::new(function.arguments, asm);
+    let mut variables = Variables::new(&function.arguments, asm);
 
-    generate_block(asm, function.block, &mut variables);
+    generate_block(asm, &function.block, &mut variables);
 }
 
-fn generate_block(asm: &mut ASM, block: Block, variables: &mut Variables) {
+fn generate_block(asm: &mut ASM, block: &Block, variables: &mut Variables) {
     variables.new_scope();
     // Generate instructions
-    for instruction in block.instructions {
+    for instruction in &block.instructions {
         generate_instruction(asm, instruction, variables)
     }
     variables.close_scope(asm);
 }
 
-fn generate_instruction(asm: &mut ASM, instruction: Instruction, variables: &mut Variables) {
+fn generate_instruction(asm: &mut ASM, instruction: &Instruction, variables: &mut Variables) {
     match instruction {
         Instruction::Assignment { id, value } => {
             generate_expression(asm, value, variables);
@@ -162,14 +201,14 @@ fn generate_instruction(asm: &mut ASM, instruction: Instruction, variables: &mut
         Instruction::Decleration { id, value } => {
             generate_expression(asm, value, variables);
             asm.push_instr(format!("PUSH RAX"));
-            variables.new_variable(&id);
+            variables.new_variable(&id, value.get_type().get_size());
         },
         Instruction::If { condition, block } => generate_if(asm, variables, condition, block),
         Instruction::While { condition, block } => generate_while(asm, variables, condition, block),
     }
 }
 
-fn generate_expression(asm: &mut ASM, expression: Expression, variables: &mut Variables) {
+fn generate_expression(asm: &mut ASM, expression: &Expression, variables: &mut Variables) {
     match expression {
         Expression::Value(value) => {
             match value {
@@ -177,23 +216,23 @@ fn generate_expression(asm: &mut ASM, expression: Expression, variables: &mut Va
                     asm.push_instr(format!("MOV RAX, {i}"));
                 },
                 crate::lexer::Value::Boolean(b) => {
-                    asm.push_instr(format!("MOV RAX, {}", b as i32));
+                    asm.push_instr(format!("MOV RAX, {}", *b as i32));
                 },
                 crate::lexer::Value::Float(_) => todo!(),
-                crate::lexer::Value::Void => (),
+                crate::lexer::Value::Void => asm.push_instr("MOV RAX, 0"),
             }
         },
-        Expression::Variable(var) => {
-            asm.push_instr(format!("MOV RAX, [RSP+{}]", variables.get_var_addr(&var)));
+        Expression::Variable(var, type_) => {
+            variables.generate_load_var_to(asm, var, type_.get_size(), "RAX");
         },
         Expression::MathOpearation { lhv, rhv, operator } => {
-            generate_expression(asm, *rhv, variables);
+            generate_expression(asm, rhv, variables);
             asm.push_instr("PUSH RAX");
-            variables.push();
+            variables.push(rhv.get_type().get_size());
             
-            generate_expression(asm, *lhv, variables);
+            generate_expression(asm, lhv, variables);
             asm.push_instr("POP RBX");
-            variables.pop();
+            variables.pop(rhv.get_type().get_size());
 
             match operator {
                 crate::lexer::Operator::Plus => asm.push_instr("ADD RAX, RBX"),
@@ -235,13 +274,13 @@ fn generate_expression(asm: &mut ASM, expression: Expression, variables: &mut Va
                 },
             }
         },
-        Expression::FunctionCall(call) => {
+        Expression::FunctionCall(call, _) => {
             generate_function_call(asm, call, variables)
         },
     }
 }
 
-fn generate_if(asm: &mut ASM, variables: &mut Variables, condition: Expression, block: Block) {
+fn generate_if(asm: &mut ASM, variables: &mut Variables, condition: &Expression, block: &Block) {
     generate_expression(asm, condition, variables);
     let counter = asm.get_counter();
 
@@ -254,7 +293,7 @@ fn generate_if(asm: &mut ASM, variables: &mut Variables, condition: Expression, 
     asm.push_label(format!("end_{counter}"));
 }
 
-fn generate_while(asm: &mut ASM, variables: &mut Variables, condition: Expression, block: Block) {
+fn generate_while(asm: &mut ASM, variables: &mut Variables, condition: &Expression, block: &Block) {
     let counter = asm.get_counter();
 
     asm.push_label(format!("while_{counter}"));
@@ -267,25 +306,38 @@ fn generate_while(asm: &mut ASM, variables: &mut Variables, condition: Expressio
 
 }
 
-fn generate_function_call(asm: &mut ASM, call: FunctionCall, variables: &mut Variables) {
+fn generate_function_call(asm: &mut ASM, call: &FunctionCall, variables: &mut Variables) {
     // All function calls follow the Windows calling convention for x86 (https://learn.microsoft.com/en-us/cpp/build/x64-calling-convention)
-    let params = call.parameters.len();
-    for param in call.parameters.into_iter().rev() {
+    variables.new_scope();
+    for param in call.parameters.iter().rev() {
         generate_expression(asm, param, variables);
-        asm.push_instr("PUSH RAX");
-        variables.push();
-    }
-    for i in 0..params { // Move first four arguments to registers
-        match i {
-            0 => asm.push_instr("POP RCX"),
-            1 => asm.push_instr("POP RDX"),
-            2 => asm.push_instr("POP R8"),
-            3 => asm.push_instr("POP R9"),
-            _ => ()
+        let size = param.get_type().get_size();
+        asm.push_instr(format!("SUB RSP, {}", &size.to_string()));
+        match size {
+            1 => asm.push_instr("MOV BYTE [RSP], AL"),
+            2 => asm.push_instr("MOV WORD [RSP], AX"),
+            4 => asm.push_instr("MOV DWORD [RSP], EAX"),
+            8 => asm.push_instr("MOV QWORD [RSP], RAX"),
+            _ => todo!(),
         }
-        variables.pop();
+        variables.push(size);
+    }
+    for (i, param) in call.parameters.iter().enumerate().take(4) { // Move first four arguments to registers
+        let size = param.get_type().get_size();
+
+        let reg = match i {
+            0 => "RCX",
+            1 => "RDX",
+            2 => "R8",
+            3 => "R9",
+            _ => unreachable!(),
+        };
+
+        variables.generate_load_addr_to(asm, 0, size, reg);
+        asm.push_instr(format!("ADD RSP, {size}"));
+        variables.pop(size);
     }
     asm.push_instr("SUB RSP, 32");
     asm.push_instr(format!("CALL {}", call.function));
-    asm.push_instr(format!("ADD RSP, {}", params.min(4)*8));
+    variables.close_scope(asm);
 }

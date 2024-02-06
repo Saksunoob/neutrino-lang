@@ -165,6 +165,7 @@ fn parse_function(tokens: &mut Tokens, function_signatures: &HashMap<String, Fun
     }?;
 
     let mut variables = arguments.iter().cloned().collect();
+    let arguments = arguments.into_iter().map(|(name, type_)| (name, type_.get_size())).collect();
 
     Ok(Function {
         name,
@@ -216,7 +217,7 @@ fn parse_instruction(tokens: &mut Tokens, variables: &mut HashMap<String, Type>,
             }?;
 
             let value = parse_expression(tokens, variables, function_signatures)?;
-            let type_ = value.get_type(variables, function_signatures).unwrap();
+            let type_ = value.get_type();
             variables.insert(id.clone(), type_);
 
             Ok(Instruction::Decleration { id, value })
@@ -226,7 +227,7 @@ fn parse_instruction(tokens: &mut Tokens, variables: &mut HashMap<String, Type>,
                 Ok(Instruction::Return(Expression::Value(Value::Void)))
             } else {
                 let expression = parse_expression(tokens, variables, function_signatures)?;
-                if expression.get_type(variables, function_signatures) != Some(*return_type) {
+                if expression.get_type() != *return_type {
                     return Err(ParseError::new(format!("Expected return type {return_type:?} but found {expression:?}"), tokens.get_prev_location()));
                 }
                 Ok(Instruction::Return(expression))
@@ -239,7 +240,7 @@ fn parse_instruction(tokens: &mut Tokens, variables: &mut HashMap<String, Type>,
         Token::Keyword(Keyword::While) => {
             expect_terminator = false;
             let condition = parse_expression(tokens, variables, function_signatures)?;
-            let condition_type = condition.get_type(variables, function_signatures).unwrap();
+            let condition_type = condition.get_type();
             if condition_type != Type::Boolean {
                 return Err(ParseError::new(format!("Expected condition type boolean but found {condition_type:?}"), tokens.get_prev_location()));
             }
@@ -297,7 +298,7 @@ fn parse_function_call(function: String, tokens: &mut Tokens, variables: &mut Ha
     }?;
     if let Some(signature) = function_signatures.get(&function) {
         if arguments.iter().enumerate().all(|(index, argument)| {
-            signature.arguments.get(index).is_some_and(|type_| type_ == &argument.get_type(variables, function_signatures).unwrap())
+            signature.arguments.get(index).is_some_and(|type_| type_ == &argument.get_type())
         }) {
             Ok(FunctionCall::new(function, arguments))
         } else {
@@ -354,8 +355,11 @@ fn parse_expression(tokens: &mut Tokens, variables: &mut HashMap<String, Type>, 
                     return Err(ParseError::new(format!("Expected operator"), tokens.get_prev_location()));
                 }
                 operands.push(match tokens.peek() {
-                    Token::SpecialSymbol(SpecialSymbol::OpenParen) => Expression::FunctionCall(parse_function_call(id, tokens, variables, function_signatures)?),
-                    _ => Expression::Variable(id)
+                    Token::SpecialSymbol(SpecialSymbol::OpenParen) => Expression::FunctionCall(
+                        parse_function_call(id.clone(), tokens, variables, function_signatures)?, 
+                        function_signatures.get(&id).unwrap().return_type
+                    ),
+                    _ => Expression::Variable(id.clone(), variables.get(&id).unwrap().clone()),
                 });
                 last_element_was_operator = false;
             },
@@ -395,11 +399,11 @@ fn parse_expression(tokens: &mut Tokens, variables: &mut HashMap<String, Type>, 
                 let lhv = operands.remove(index);
                 let rhv = operands.remove(index);
 
-                let lhv_type = lhv.get_type(variables, function_signatures);
-                let rhv_type = rhv.get_type(variables, function_signatures);
+                let lhv_type = lhv.get_type();
+                let rhv_type = rhv.get_type();
 
                 if lhv_type != rhv_type {
-                    return Err(ParseError::new(format!("Expected same types in expression, got {:?}, {:?}", lhv_type.unwrap(), rhv_type.unwrap()), tokens.get_prev_location()));
+                    return Err(ParseError::new(format!("Expected same types in expression, got {:?}, {:?}", lhv_type, rhv_type), tokens.get_prev_location()));
                 }
 
                 operands.insert(index, Expression::MathOpearation { lhv: Box::new(lhv), rhv: Box::new(rhv), operator })
@@ -562,7 +566,7 @@ impl SyntaxTree {
 #[derive(Debug)]
 pub struct Function {
     pub name: String,
-    pub arguments: Vec<(String, Type)>,
+    pub arguments: Vec<(String, usize)>,
     pub block: Block
 }
 
@@ -593,34 +597,29 @@ pub enum Instruction {
 #[derive(Debug, PartialEq)]
 pub enum Expression {
     Value(Value),
-    Variable(String),
+    Variable(String, Type),
     MathOpearation {
         lhv: Box<Expression>,
         rhv: Box<Expression>,
         operator: Operator
     },
-    FunctionCall(FunctionCall)
+    FunctionCall(FunctionCall, Type)
 }
 
 impl Expression {
-    fn get_type(&self, variables: &mut HashMap<String, Type>, function_signatures: &HashMap<String, FunctionSiganture>) -> Option<Type> {
+    pub fn get_type(&self) ->Type {
         match self {
-            Expression::Value(value) => Some(value.get_type()),
-            Expression::Variable(var) => variables.get(var).copied(),
-            Expression::MathOpearation { lhv, rhv, operator } => {
-                let lhv_type = lhv.get_type(variables, function_signatures);
-                let rhv_type = rhv.get_type(variables, function_signatures);
-                if lhv_type == rhv_type {
-                    match operator {
-                        Operator::Plus | Operator::Minus | Operator::Multiply | Operator::Divide => Some(lhv_type.unwrap()),
-                        Operator::GreaterThan | Operator::LessThan | Operator::GreaterThanOrEqual | Operator::LessThanOrEqual | Operator::Equal | Operator::NotEqual => Some(Type::Boolean),
-                    }
-                } else {
-                    return None
+            Expression::Value(value) => value.get_type(),
+            Expression::Variable(_, type_) => *type_,
+            Expression::MathOpearation { lhv, rhv: _, operator } => {
+                let lhv_type = lhv.get_type();
+                match operator {
+                    Operator::Plus | Operator::Minus | Operator::Multiply | Operator::Divide => lhv_type,
+                    Operator::GreaterThan | Operator::LessThan | Operator::GreaterThanOrEqual | Operator::LessThanOrEqual | Operator::Equal | Operator::NotEqual => Type::Boolean,
                 }
             },
-            Expression::FunctionCall(call) => {
-                function_signatures.get(&call.function).and_then(|signature| Some(signature.return_type))
+            Expression::FunctionCall(_, ret) => {
+                *ret
             }
         }
     }
@@ -756,7 +755,10 @@ mod tests {
         let instruction = result.unwrap();
 
         match instruction {
-            Instruction::Return(Expression::Variable(var)) => assert_eq!(var, "variable"),
+            Instruction::Return(Expression::Variable(var, type_)) => {
+                assert_eq!(var, "variable"); 
+                assert_eq!(type_, Type::Integer);
+            },
             _ => panic!("Invalid instruction"),
         }
     }
@@ -796,7 +798,10 @@ mod tests {
         assert_eq!(closure.return_type, Type::Integer);
         assert_eq!(closure.instructions.len(), 1);
         match &closure.instructions[0] {
-            Instruction::Return(Expression::Variable(param)) => assert_eq!(param, "param1"),
+            Instruction::Return(Expression::Variable(param, type_)) => {
+                assert_eq!(param, "param1"); 
+                assert_eq!(type_, &Type::Integer);
+            },
             _ => panic!("Invalid instruction"),
         }
     }
@@ -822,7 +827,7 @@ mod tests {
 
         let function = result.unwrap();
         assert_eq!(function.name, "test_func");
-        assert_eq!(function.arguments, vec![("x".to_string(), Type::Integer), ("y".to_string(), Type::Integer)]);
+        assert_eq!(function.arguments, vec![("x".to_string(), Type::Integer.get_size()), ("y".to_string(), Type::Integer.get_size())]);
     }
 
     #[test]

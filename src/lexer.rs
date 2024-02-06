@@ -257,6 +257,14 @@ impl Type {
             _ => None
         }
     }
+    pub fn get_size(&self) -> usize {
+        match self {
+            Type::Void => 0,
+            Type::Integer => 8,
+            Type::Float => 8,
+            Type::Boolean => 1
+        }
+    }
 }
 
 

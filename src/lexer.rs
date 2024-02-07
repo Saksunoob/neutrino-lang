@@ -111,8 +111,8 @@ impl PartialEq for Tokens {
 pub enum Token {
     EOF,
     Keyword(Keyword),
-    Value(Value),
-    Type(Type),
+    Value(NativeValue),
+    Type(NativeType),
     Identifier(String),
     SpecialSymbol(SpecialSymbol),
     Operator(Operator)
@@ -125,7 +125,7 @@ impl Token {
         if let Some(keyword) = Keyword::from_string(&string) {
             return Some(Token::Keyword(keyword));
         }
-        if let Some(type_) = Type::from_string(&string) {
+        if let Some(type_) = NativeType::from_string(&string) {
             return Some(Token::Type(type_));
         }
         if let Some(symbol) = SpecialSymbol::from_string(&string) {
@@ -134,7 +134,7 @@ impl Token {
         if let Some(operator) = Operator::from_string(&string) {
             return Some(Token::Operator(operator));
         }
-        if let Some(value) = Value::from_string(&string) {
+        if let Some(value) = NativeValue::from_string(&string) {
             return Some(Token::Value(value));
         }
         if let Some(id) = id_from_string(&string) {
@@ -169,22 +169,23 @@ impl Display for Token {
                     Keyword::External => write!(f, "External"),
                     Keyword::If => write!(f, "If"),
                     Keyword::While => write!(f, "While"),
+                    Keyword::Struct => write!(f, "Struct"),
                 }
             },
             Token::Type(type_) => {
                 match type_ {
-                    Type::Void => write!(f, "Void"),
-                    Type::Integer => write!(f, "Integer"),
-                    Type::Float => write!(f, "Float"),
-                    Type::Boolean => write!(f, "Boolean"),
+                    NativeType::Void => write!(f, "Void"),
+                    NativeType::Integer => write!(f, "Integer"),
+                    NativeType::Float => write!(f, "Float"),
+                    NativeType::Boolean => write!(f, "Boolean"),
                 }
             }
             Token::Value(value) => {
                 match value {
-                    Value::Integer(i) => write!(f, "{}", &i.to_string()),
-                    Value::Float(v) => write!(f, "{}", &v.to_string()),
-                    Value::Boolean(b) => write!(f, "{}", &b.to_string()),
-                    Value::Void => write!(f, "Void"),
+                    NativeValue::Integer(i) => write!(f, "{}", &i.to_string()),
+                    NativeValue::Float(v) => write!(f, "{}", &v.to_string()),
+                    NativeValue::Boolean(b) => write!(f, "{}", &b.to_string()),
+                    NativeValue::Void => write!(f, "Void"),
                 }
             },
             Token::SpecialSymbol(symbol) => {
@@ -196,6 +197,7 @@ impl Display for Token {
                     SpecialSymbol::OpenBracket => write!(f, "{{"),
                     SpecialSymbol::CloseBracket => write!(f, "}}"),
                     SpecialSymbol::Comma => write!(f, ","),
+                    SpecialSymbol::Colon => write!(f, ":"),
                 }
             },
             Token::Operator(op) => {
@@ -224,7 +226,8 @@ pub enum Keyword {
     Return,
     External,
     If,
-    While
+    While,
+    Struct
 }
 impl Keyword {
     pub fn from_string(string: &String) -> Option<Keyword> {
@@ -235,20 +238,21 @@ impl Keyword {
             "extern" => Some(Keyword::External),
             "if" => Some(Keyword::If),
             "while" => Some(Keyword::While),
+            "struct" => Some(Keyword::Struct),
             _ => None
         }
     }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
-pub enum Type {
+pub enum NativeType {
     Void,
     Integer,
     Float,
     Boolean
 }
-impl Type {
-    pub fn from_string(string: &String) -> Option<Type> {
+impl NativeType {
+    pub fn from_string(string: &String) -> Option<NativeType> {
         match string.as_str() {
             "void" => Some(Self::Void),
             "int" => Some(Self::Integer),
@@ -259,24 +263,24 @@ impl Type {
     }
     pub fn get_size(&self) -> usize {
         match self {
-            Type::Void => 0,
-            Type::Integer => 8,
-            Type::Float => 8,
-            Type::Boolean => 1
+            NativeType::Void => 0,
+            NativeType::Integer => 8,
+            NativeType::Float => 8,
+            NativeType::Boolean => 1
         }
     }
 }
 
 
 #[derive(Debug, PartialEq)]
-pub enum Value {
+pub enum NativeValue {
     Void,
     Integer(i64),
     Float(f64),
     Boolean(bool),
 }
-impl Value {
-    pub fn from_string(string: &String) -> Option<Value> {
+impl NativeValue {
+    pub fn from_string(string: &String) -> Option<NativeValue> {
         if string.chars().next().unwrap() == '+' {
             return None;
         }
@@ -292,12 +296,12 @@ impl Value {
             _ => None
         }
     }
-    pub fn get_type(&self) -> Type {
+    pub fn get_type(&self) -> NativeType {
         match self {
-            Value::Integer(_) => Type::Integer,
-            Value::Float(_) => Type::Float,
-            Value::Boolean(_) => Type::Boolean,
-            Value::Void => Type::Void,
+            NativeValue::Integer(_) => NativeType::Integer,
+            NativeValue::Float(_) => NativeType::Float,
+            NativeValue::Boolean(_) => NativeType::Boolean,
+            NativeValue::Void => NativeType::Void,
         }
     }
 }
@@ -311,6 +315,7 @@ pub enum SpecialSymbol {
     OpenBracket,
     CloseBracket,
     Comma,
+    Colon
 }
 impl SpecialSymbol {
     pub fn from_string(string: &String) -> Option<SpecialSymbol> {
@@ -322,6 +327,7 @@ impl SpecialSymbol {
             "{" => Some(SpecialSymbol::OpenBracket),
             "}" => Some(SpecialSymbol::CloseBracket),
             "," => Some(SpecialSymbol::Comma),
+            ":" => Some(SpecialSymbol::Colon),
             _ => None
         }
     }
@@ -419,7 +425,7 @@ mod tests {
             Token::Keyword(Keyword::Return),
             Token::Identifier("sum".to_string()),
             Token::Operator(Operator::Multiply),
-            Token::Value(Value::Integer(2)),
+            Token::Value(NativeValue::Integer(2)),
             Token::SpecialSymbol(SpecialSymbol::Terminator),
             Token::SpecialSymbol(SpecialSymbol::CloseBracket),
             Token::EOF
@@ -439,11 +445,11 @@ mod tests {
     }
     #[test]
     fn test_type_from_string() {
-        assert_eq!(Type::from_string(&"void".to_string()), Some(Type::Void));
-        assert_eq!(Type::from_string(&"int".to_string()), Some(Type::Integer));
-        assert_eq!(Type::from_string(&"float".to_string()), Some(Type::Float));
-        assert_eq!(Type::from_string(&"bool".to_string()), Some(Type::Boolean));
-        assert_eq!(Type::from_string(&"invalid".to_string()), None);
+        assert_eq!(NativeType::from_string(&"void".to_string()), Some(NativeType::Void));
+        assert_eq!(NativeType::from_string(&"int".to_string()), Some(NativeType::Integer));
+        assert_eq!(NativeType::from_string(&"float".to_string()), Some(NativeType::Float));
+        assert_eq!(NativeType::from_string(&"bool".to_string()), Some(NativeType::Boolean));
+        assert_eq!(NativeType::from_string(&"invalid".to_string()), None);
     }
     #[test]
     fn test_id_from_string() {
@@ -456,18 +462,18 @@ mod tests {
     }
     #[test]
     fn test_value_from_string() {
-        assert_eq!(Value::from_string(&"123".to_string()), Some(Value::Integer(123)));
-        assert_eq!(Value::from_string(&"123.456".to_string()), Some(Value::Float(123.456)));
-        assert_eq!(Value::from_string(&"true".to_string()), Some(Value::Boolean(true)));
-        assert_eq!(Value::from_string(&"false".to_string()), Some(Value::Boolean(false)));
-        assert_eq!(Value::from_string(&"invalid".to_string()), None);
+        assert_eq!(NativeValue::from_string(&"123".to_string()), Some(NativeValue::Integer(123)));
+        assert_eq!(NativeValue::from_string(&"123.456".to_string()), Some(NativeValue::Float(123.456)));
+        assert_eq!(NativeValue::from_string(&"true".to_string()), Some(NativeValue::Boolean(true)));
+        assert_eq!(NativeValue::from_string(&"false".to_string()), Some(NativeValue::Boolean(false)));
+        assert_eq!(NativeValue::from_string(&"invalid".to_string()), None);
     }
 
     #[test]
     fn test_value_get_type() {
-        assert_eq!(Value::Integer(123).get_type(), Type::Integer);
-        assert_eq!(Value::Float(123.456).get_type(), Type::Float);
-        assert_eq!(Value::Boolean(true).get_type(), Type::Boolean);
+        assert_eq!(NativeValue::Integer(123).get_type(), NativeType::Integer);
+        assert_eq!(NativeValue::Float(123.456).get_type(), NativeType::Float);
+        assert_eq!(NativeValue::Boolean(true).get_type(), NativeType::Boolean);
     }
 
     #[test]

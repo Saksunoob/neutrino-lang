@@ -212,14 +212,16 @@ fn generate_expression(asm: &mut ASM, expression: &Expression, variables: &mut V
     match expression {
         Expression::Value(value) => {
             match value {
-                crate::lexer::Value::Integer(i) => {
+                /*crate::lexer::NativeValue::Integer(i) => {
                     asm.push_instr(format!("MOV RAX, {i}"));
                 },
-                crate::lexer::Value::Boolean(b) => {
+                crate::lexer::NativeValue::Boolean(b) => {
                     asm.push_instr(format!("MOV RAX, {}", *b as i32));
                 },
-                crate::lexer::Value::Float(_) => todo!(),
-                crate::lexer::Value::Void => asm.push_instr("MOV RAX, 0"),
+                crate::lexer::NativeValue::Float(_) => todo!(),
+                crate::lexer::NativeValue::Void => asm.push_instr("MOV RAX, 0"),*/
+                crate::parser::Value::Native(_) => todo!(),
+                crate::parser::Value::Struct(_) => todo!(),
             }
         },
         Expression::Variable(var, type_) => {

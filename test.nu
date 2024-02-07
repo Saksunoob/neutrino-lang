@@ -1,13 +1,15 @@
 extern ExitProcess(int) void;
 
-fn main() int {
-    let x = 7;
-    ret var_size_test(x, true);
+struct Test {
+    a int,
+    b int,
 }
 
-fn var_size_test(num1 int, num2 bool) int {
-    if num2 {
-        ret num1;
-    }
+fn main() int {
+    let x = Test{a: 1, b: 2};
     ret 0;
+}
+
+fn struct_call_test(num1 Test, num2 bool) int {
+    ret num1.a + num1.b;
 }

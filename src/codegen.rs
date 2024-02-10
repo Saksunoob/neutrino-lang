@@ -1,6 +1,6 @@
 use std::{collections::HashMap, process::exit};
 
-use crate::parser::{Block, Expression, Function, FunctionCall, Instruction, SyntaxTree};
+use crate::parser::{Block, Expression, Function, FunctionCall, Instruction, SyntaxTree, Type};
 
 
 struct ASM {
@@ -49,11 +49,11 @@ impl ASM {
 
 struct Variable {
     pointer: usize,
-    size: usize
+    var_type: Type
 }
 impl Variable {
-    pub fn new(pointer: usize, size: usize) -> Self {
-        Self { pointer, size }
+    pub fn new(pointer: usize, var_type: Type) -> Self {
+        Self { pointer, var_type }
     }
 }
 
@@ -62,7 +62,7 @@ struct Variables {
     stack_pointer: usize
 }
 impl Variables {
-    pub fn new(input_parameters: &Vec<(String, usize)>, asm: &mut ASM) -> Self {
+    pub fn new(input_parameters: &Vec<(String, Type)>, asm: &mut ASM) -> Self {
         let mut call_scope = HashMap::new();
 
         let mut stack_pointer = 0;
@@ -76,11 +76,11 @@ impl Variables {
                 _ => ()
             }
             if i > 3 {
-                stack_pointer += input_parameters[i].1;
-                call_scope.insert(input_parameters[i].0.clone(), Variable::new(stack_pointer, input_parameters[i].1));
+                stack_pointer += input_parameters[i].1.get_size();
+                call_scope.insert(input_parameters[i].0.clone(), Variable::new(stack_pointer, input_parameters[i].1.clone()));
             } else {
                 stack_pointer += 8;
-                call_scope.insert(input_parameters[i].0.clone(), Variable::new(stack_pointer, input_parameters[i].1));
+                call_scope.insert(input_parameters[i].0.clone(), Variable::new(stack_pointer, input_parameters[i].1.clone()));
             }
             
         }
@@ -94,26 +94,26 @@ impl Variables {
     }
     pub fn close_scope(&mut self, asm: &mut ASM) {
         let vars = self.scopes.pop().unwrap();
-        let scope_size = vars.values().into_iter().map(|var| var.size).sum::<usize>();
+        let scope_size = vars.values().into_iter().map(|var| var.var_type.get_size()).sum::<usize>();
         self.stack_pointer -= scope_size;
 
         asm.push_instr(format!("ADD RSP, {}", scope_size));
     }
-    pub fn new_variable(&mut self, name: &String, size: usize) {
-        self.stack_pointer += size;
-        self.scopes.last_mut().unwrap().insert(name.to_string(), Variable::new(self.stack_pointer, size));
+    pub fn new_variable(&mut self, name: &String, var_type: Type) {
+        self.stack_pointer += var_type.get_size();
+        self.scopes.last_mut().unwrap().insert(name.to_string(), Variable::new(self.stack_pointer, var_type));
     }
-    pub fn get_var_addr(&self, name: &String) -> usize {
+    pub fn get_var_addr(&self, name: &Vec<String>) -> usize {
         for scope in self.scopes.iter().rev() {
-            if let Some(var) = scope.get(name) {
-                println!("{}: {}-{}", name, self.stack_pointer, var.pointer);
-                return self.stack_pointer-var.pointer;
+            if let Some(var) = scope.get(&name[0]) {
+                let var_pointer = var.pointer - var.var_type.get_offset(&name[1..].to_vec());
+                return self.stack_pointer-var_pointer;
             }
         }
-        eprintln!("Variable {name} not found");
+        eprintln!("Variable {name:?} not found");
         exit(1)
     }
-    pub fn generate_load_var_to(&self, asm: &mut ASM, var: &String, size: usize, reg: &str) {
+    pub fn generate_load_var_to(&self, asm: &mut ASM, var: &Vec<String>, size: usize, reg: &str) {
         let addr = self.get_var_addr(var);
         self.generate_load_addr_to(asm, addr, size, reg);
     }
@@ -130,6 +130,21 @@ impl Variables {
             asm.push_instr(format!("MOVZX {reg}, {size_id} [RSP+{addr}]"));
         }
     }
+    pub fn push_value(&mut self, asm: &mut ASM, reg: &str, size: usize) {
+        if size == 8 {
+            asm.push_instr(format!("PUSH {reg}"));
+        } else {
+            let size_id = match size {
+                1 => "BYTE",
+                2 => "WORD",
+                4 => "DWORD",
+                _ => unreachable!(),
+            };
+            asm.push_instr(format!("SUB RSP, {size}"));
+            asm.push_instr(format!("MOV [RSP], {size_id} {reg}"));
+        }
+        self.stack_pointer += size;
+    }
     pub fn pop(&mut self, size: usize) {
         let last = self.scopes.last_mut().unwrap();
 
@@ -144,9 +159,10 @@ impl Variables {
     pub fn push(&mut self, size: usize) {
         self.stack_pointer += size;
     }
+    // Return stack pointer to point to function return address
     pub fn get_return_stack_add(&mut self) -> usize {
         let scopes = &self.scopes[1..];
-        let variable_amount: usize = scopes.iter().flat_map(|scope| scope.iter().map(|(_, var)| var.size)).sum();
+        let variable_amount: usize = scopes.iter().flat_map(|scope| scope.iter().map(|(_, var)| var.var_type.get_size())).sum();
         variable_amount
     }
 }
@@ -200,8 +216,10 @@ fn generate_instruction(asm: &mut ASM, instruction: &Instruction, variables: &mu
         },
         Instruction::Decleration { id, value } => {
             generate_expression(asm, value, variables);
-            asm.push_instr(format!("PUSH RAX"));
-            variables.new_variable(&id, value.get_type().get_size());
+            if let Type::Native(value) = value.get_type() {
+                variables.push_value(asm, "RAX", value.get_size());
+            }
+            variables.new_variable(&id, value.get_type());
         },
         Instruction::If { condition, block } => generate_if(asm, variables, condition, block),
         Instruction::While { condition, block } => generate_while(asm, variables, condition, block),
@@ -212,16 +230,27 @@ fn generate_expression(asm: &mut ASM, expression: &Expression, variables: &mut V
     match expression {
         Expression::Value(value) => {
             match value {
-                /*crate::lexer::NativeValue::Integer(i) => {
-                    asm.push_instr(format!("MOV RAX, {i}"));
+                crate::parser::Value::Native(value) => {
+                    match value {
+                        crate::lexer::NativeValue::Integer(i) => {
+                            asm.push_instr(format!("MOV RAX, {i}"));
+                        },
+                        crate::lexer::NativeValue::Boolean(b) => {
+                            asm.push_instr(format!("MOV RAX, {}", *b as i32));
+                        },
+                        crate::lexer::NativeValue::Float(_) => todo!(),
+                        crate::lexer::NativeValue::Void => asm.push_instr("MOV RAX, 0"),
+                    }
                 },
-                crate::lexer::NativeValue::Boolean(b) => {
-                    asm.push_instr(format!("MOV RAX, {}", *b as i32));
+                crate::parser::Value::Struct(struct_) => {
+                    for value in struct_.field_values.iter().rev() {
+                        generate_expression(asm, value, variables);
+                        match value.get_type() {
+                            Type::Native(_) => variables.push_value(asm, "RAX", value.get_type().get_size()),
+                            Type::Struct(_) => (),
+                        }
+                    }
                 },
-                crate::lexer::NativeValue::Float(_) => todo!(),
-                crate::lexer::NativeValue::Void => asm.push_instr("MOV RAX, 0"),*/
-                crate::parser::Value::Native(_) => todo!(),
-                crate::parser::Value::Struct(_) => todo!(),
             }
         },
         Expression::Variable(var, type_) => {

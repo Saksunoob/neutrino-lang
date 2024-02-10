@@ -120,7 +120,7 @@ fn parse_function(tokens: &mut Tokens, global_info: &GlobalInfo) -> Result<Funct
     let return_type = get_type_from_token(&tokens.next(), tokens.get_prev_location(), global_info)?;
 
     let mut variables = arguments.iter().cloned().collect();
-    let arguments = arguments.into_iter().map(|(name, type_)| (name, type_.get_size())).collect();
+    let arguments = arguments.into_iter().map(|(name, type_)| (name, type_)).collect();
 
     Ok(Function {
         name,
@@ -203,11 +203,30 @@ fn parse_instruction(tokens: &mut Tokens, variables: &mut HashMap<String, Type>,
         }
         Token::Identifier(id) => {
             if variables.contains_key(&id) {
-                match tokens.next() {
-                    Token::SpecialSymbol(SpecialSymbol::Equals) => (),
-                    token => return Err(ParseError::new(format!("Unexpected token after variable name: {token}"), tokens.get_prev_location()))
+                let mut path = vec![id.clone()];
+                loop {
+                    match tokens.next() {
+                        Token::SpecialSymbol(SpecialSymbol::Period) => {
+                            match tokens.next() {
+                                Token::Identifier(id) => {
+                                    path.push(id);
+                                },
+                                token => {
+                                    return Err(ParseError::new(format!("Unexpected token after variable: {token}"), tokens.get_prev_location()))
+                                }
+                            }
+                        },
+                        Token::SpecialSymbol(SpecialSymbol::Equals) => {
+                            break;
+                        },
+                        token => {
+                            return Err(ParseError::new(format!("Unexpected token after variable: {token}"), tokens.get_prev_location()))
+                        },
+                    }
                 }
-                Ok(Instruction::Assignment { id, value: parse_expression(tokens, variables, global_info)? })
+                let value = parse_expression(tokens, variables, global_info)?;
+                Ok(Instruction::Assignment { id: path, value })
+                
             } else {
                 Ok(Instruction::FunctionCall(parse_function_call(id, tokens, variables, global_info)?))
             }
@@ -317,7 +336,26 @@ fn parse_expression(tokens: &mut Tokens, variables: &mut HashMap<String, Type>, 
                     Token::SpecialSymbol(SpecialSymbol::OpenBracket) => Expression::Value(
                         Value::Struct(parse_new_struct(tokens, id, variables, global_info)?)
                     ),
-                    _ => Expression::Variable(id.clone(), variables.get(&id).unwrap().clone()),
+                    _ => {
+                        let mut path = vec![id.clone()];
+                        loop {
+                            match tokens.peek() {
+                                Token::SpecialSymbol(SpecialSymbol::Period) => {
+                                    tokens.next();
+                                    match tokens.next() {
+                                        Token::Identifier(id) => {
+                                            path.push(id);
+                                        },
+                                        token => {
+                                            return Err(ParseError::new(format!("Unexpected token in struct path: {token}"), tokens.get_prev_location()))
+                                        }
+                                    }
+                                },
+                                _ => break
+                            }
+                        }
+                        Expression::Variable(path.clone(), variables.get(&id).unwrap().get_type(&path[1..].to_vec()))
+                    },
                 });
                 last_element_was_operator = false;
             },
@@ -393,14 +431,14 @@ fn parse_new_struct(tokens: &mut Tokens, name: String, variables: &mut HashMap<S
         },
     };
 
-    let mut fields = Vec::new();
+    let mut field_values = Vec::new();
     loop {
         match tokens.next() {
             Token::SpecialSymbol(SpecialSymbol::CloseBracket) => {
                 break;
             },
             Token::Identifier(id) => {
-                let field = expected_struct.fields.iter().find(|(name, _)| name == &id);
+                let field = expected_struct.fields.get(&id);
                 if let Some(field) = field {
                     match tokens.next() {
                         Token::SpecialSymbol(SpecialSymbol::Colon) => (),
@@ -412,7 +450,7 @@ fn parse_new_struct(tokens: &mut Tokens, name: String, variables: &mut HashMap<S
                     if expression.get_type() != field.1 {
                         return Err(ParseError::new(format!("Expected field type {:?} but found {:?}", field.1, expression.get_type()), tokens.get_prev_location()));
                     }
-                    fields.push((id, expression));
+                    field_values.push(expression);
                 } else {
                     return Err(ParseError::new(format!("Unknown field: {id}"), tokens.get_prev_location()));
                 }
@@ -429,7 +467,7 @@ fn parse_new_struct(tokens: &mut Tokens, name: String, variables: &mut HashMap<S
             }
         }
     }
-    Ok(Struct { name, fields })
+    Ok(Struct { signature: expected_struct.clone(), field_values })
 }
 
 fn get_type_from_token(token: &Token, token_pos: (usize, usize), global_info: &GlobalInfo) -> Result<Type, ParseError> {
@@ -460,6 +498,24 @@ impl Type {
             Type::Struct(struct_signature) => struct_signature.get_size(),
         }
     }
+    pub fn get_offset(&self, path: &Vec<String>) -> usize {
+        match self {
+            Type::Native(_) => 0,
+            Type::Struct(struct_signature) => {
+                let field = struct_signature.fields.get(&path[0]).unwrap();
+                return field.0 + field.1.get_offset(&path[1..].to_vec());
+            }
+        }
+    }
+    pub fn get_type(&self, path: &Vec<String>) -> Type {
+        match self {
+            Type::Native(_) => self.clone(),
+            Type::Struct(struct_signature) => {
+                let field = struct_signature.fields.get(&path[0]).unwrap();
+                return field.1.get_type(&path[1..].to_vec());
+            }
+        }
+    }
 }
 
 #[derive(Debug, PartialEq, Clone)]
@@ -474,7 +530,7 @@ impl Display for TypeError {
 }
 
 #[derive(Clone, PartialEq, Debug)]
-pub enum InitialType {
+enum InitialType {
     Native(NativeType),
     UnknownStruct(String)
 }
@@ -487,9 +543,13 @@ impl InitialType {
                     Ok(Type::Struct(signature.clone()))
                 } else {
                     if let Some(init_fields) = init_struct_signatures.get(name) {
-                        let mut fields = Vec::new();
+                        let mut fields = HashMap::new();
+                        let mut meme_loc = 0;
                         for (name, field) in init_fields.iter() {
-                            fields.push((name.clone(), field.validate(init_struct_signatures, struct_signatures)?))
+                            let validated_field = field.validate(init_struct_signatures, struct_signatures)?;
+                            let offset = validated_field.get_size();
+                            fields.insert(name.clone(), (meme_loc, validated_field));
+                            meme_loc += offset;
                         }
                         Ok(Type::Struct(StructSignature{ name: name.clone(), fields }))
                     } else {
@@ -503,13 +563,12 @@ impl InitialType {
 
 #[derive(Debug, PartialEq)]
 pub struct Struct {
-    name: String,
-    fields: Vec<(String, Expression)>,
+    pub signature: StructSignature,
+    pub field_values: Vec<Expression>,
 }
 impl Struct {
     pub fn get_type(&self) -> Type {
-
-        Type::Struct(StructSignature { name: self.name.clone(), fields: self.fields.iter().map(|(name, expression)| (name.clone(), expression.get_type())).collect() })
+        Type::Struct(self.signature.clone())
     }
 }
 
@@ -546,11 +605,11 @@ impl FunctionSignature {
 #[derive(Clone, PartialEq, Debug)]
 pub struct StructSignature {
     pub name: String,
-    pub fields: Vec<(String, Type)>
+    pub fields: HashMap<String, (usize, Type)> // Hashmap connect each field to its offset and type
 }
 impl StructSignature {
     pub fn get_size(&self) -> usize {
-        self.fields.iter().map(|(_, type_)| type_.get_size()).sum()
+        self.fields.iter().map(|(_, type_)| type_.1.get_size()).sum()
     }
 }
 
@@ -577,13 +636,15 @@ fn extract_global_info(tokens: &Tokens) -> Result<GlobalInfo, ParseError> {
     }
 
     for (name, struct_) in init_struct_signatures.iter() {
-        let mut fields = Vec::new();
+        let mut fields = HashMap::new();
+        let mut mem_loc = 0;
         for (field_name, field_type) in struct_ {
-            let field = (field_name.clone(), field_type.validate(&init_struct_signatures, &mut global_info.struct_signatures).map_err(|err| {
+            let field = field_type.validate(&init_struct_signatures, &mut global_info.struct_signatures).map_err(|err| {
                 ParseError::new(err.msg, tokens.get_prev_location())
-            })?);
-
-            fields.push(field);
+            })?;
+            let offset = field.get_size();
+            fields.insert(field_name.clone(), (mem_loc, field));
+            mem_loc += offset;
         }
 
         global_info.struct_signatures.insert(name.clone(), StructSignature{ name: name.clone(), fields });
@@ -783,7 +844,7 @@ impl SyntaxTree {
 #[derive(Debug)]
 pub struct Function {
     pub name: String,
-    pub arguments: Vec<(String, usize)>,
+    pub arguments: Vec<(String, Type)>,
     pub block: Block
 }
 
@@ -794,7 +855,7 @@ pub enum Instruction {
         value: Expression
     },
     Assignment {
-        id: String,
+        id: Vec<String>,
         value: Expression
     },
     Return(Expression),
@@ -826,7 +887,7 @@ impl Value {
 #[derive(Debug, PartialEq)]
 pub enum Expression {
     Value(Value),
-    Variable(String, Type),
+    Variable(Vec<String>, Type),
     MathOpearation {
         lhv: Box<Expression>,
         rhv: Box<Expression>,
@@ -991,7 +1052,7 @@ mod tests {
 
         match instruction {
             Instruction::Return(Expression::Variable(var, type_)) => {
-                assert_eq!(var, "variable"); 
+                assert_eq!(var, vec!["variable"]); 
                 assert_eq!(type_, Type::Native(NativeType::Integer));
             },
             _ => panic!("Invalid instruction"),
@@ -1034,7 +1095,7 @@ mod tests {
         assert_eq!(closure.instructions.len(), 1);
         match &closure.instructions[0] {
             Instruction::Return(Expression::Variable(param, type_)) => {
-                assert_eq!(param, "param1"); 
+                assert_eq!(param, &vec!["param1".to_string()]); 
                 assert_eq!(type_, &Type::Native(NativeType::Integer));
             },
             _ => panic!("Invalid instruction"),
@@ -1062,7 +1123,7 @@ mod tests {
 
         let function = result.unwrap();
         assert_eq!(function.name, "test_func");
-        assert_eq!(function.arguments, vec![("x".to_string(), NativeType::Integer.get_size()), ("y".to_string(), NativeType::Integer.get_size())]);
+        assert_eq!(function.arguments, vec![("x".to_string(), Type::Native(NativeType::Integer)), ("y".to_string(), Type::Native(NativeType::Integer))]);
     }
 
     #[test]
@@ -1142,8 +1203,8 @@ mod tests {
 
         // Check if the struct fields are correct
         assert_eq!(structs.get("TestStruct").unwrap().fields, vec![
-            ("field1".to_string(), Type::Native(NativeType::Integer)),
-            ("field2".to_string(), Type::Native(NativeType::Float)),
-        ]);
+            ("field1".to_string(), (0, Type::Native(NativeType::Integer))),
+            ("field2".to_string(), (8, Type::Native(NativeType::Float))),
+        ].into_iter().collect());
     }
 }

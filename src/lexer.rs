@@ -22,7 +22,6 @@ pub fn tokenize(file: &String) -> Tokens {
                 buffer.push(char);
             } else {
                 if buffer.len() > 0 {
-                    println!("adding {buffer:?} to tokens");
                     tokens.push(Token::from_buffer(&buffer).unwrap(), buffer_start);
                 }
                 buffer = Vec::new();
@@ -198,6 +197,7 @@ impl Display for Token {
                     SpecialSymbol::CloseBracket => write!(f, "}}"),
                     SpecialSymbol::Comma => write!(f, ","),
                     SpecialSymbol::Colon => write!(f, ":"),
+                    SpecialSymbol::Period => write!(f, "."),
                 }
             },
             Token::Operator(op) => {
@@ -315,7 +315,8 @@ pub enum SpecialSymbol {
     OpenBracket,
     CloseBracket,
     Comma,
-    Colon
+    Colon,
+    Period
 }
 impl SpecialSymbol {
     pub fn from_string(string: &String) -> Option<SpecialSymbol> {
@@ -328,6 +329,7 @@ impl SpecialSymbol {
             "}" => Some(SpecialSymbol::CloseBracket),
             "," => Some(SpecialSymbol::Comma),
             ":" => Some(SpecialSymbol::Colon),
+            "." => Some(SpecialSymbol::Period),
             _ => None
         }
     }

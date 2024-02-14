@@ -1,5 +1,7 @@
 use std::{collections::VecDeque, fmt::Display};
 
+use crate::parser::Type;
+
 pub fn tokenize(file: &String) -> Tokens {
     let mut chars = file.chars();
 
@@ -76,6 +78,10 @@ impl Tokens {
     pub fn get_location_nth(&self, nth: usize) -> (usize, usize) {
         self.locations.get(nth+1).copied().unwrap_or((0, 0))
     }
+    pub fn consume(&mut self, amount: usize) {
+        self.locations.drain(0..amount);
+        self.tokens.drain(0..amount);
+    }
 }
 impl Display for Tokens {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -127,11 +133,11 @@ impl Token {
         if let Some(type_) = NativeType::from_string(&string) {
             return Some(Token::Type(type_));
         }
-        if let Some(symbol) = SpecialSymbol::from_string(&string) {
-            return Some(Token::SpecialSymbol(symbol));
-        }
         if let Some(operator) = Operator::from_string(&string) {
             return Some(Token::Operator(operator));
+        }
+        if let Some(symbol) = SpecialSymbol::from_string(&string) {
+            return Some(Token::SpecialSymbol(symbol));
         }
         if let Some(value) = NativeValue::from_string(&string) {
             return Some(Token::Value(value));
@@ -143,16 +149,12 @@ impl Token {
         return None;
     }
     pub fn expect_char(buffer: &Vec<char>, char: &char) -> bool {
-        if char.is_whitespace() {
-            return false;
+        if buffer.len() == 0 {
+            return !char.is_whitespace();
         }
-        if buffer.get(0).is_some() {
-            let mut buffer = buffer.clone();
-            buffer.push(*char);
-            Token::from_buffer(&buffer).is_some()
-        } else {
-            return true;
-        }
+        let mut buffer = buffer.clone();
+        buffer.push(*char);
+        Token::from_buffer(&buffer).is_some()
     }
 }
 impl Display for Token {
@@ -174,6 +176,7 @@ impl Display for Token {
             Token::Type(type_) => {
                 match type_ {
                     NativeType::Void => write!(f, "Void"),
+                    NativeType::Pointer(type_) => write!(f, "Pointer({type_:?})"),
                     NativeType::Integer => write!(f, "Integer"),
                     NativeType::Float => write!(f, "Float"),
                     NativeType::Boolean => write!(f, "Boolean"),
@@ -198,6 +201,8 @@ impl Display for Token {
                     SpecialSymbol::Comma => write!(f, ","),
                     SpecialSymbol::Colon => write!(f, ":"),
                     SpecialSymbol::Period => write!(f, "."),
+                    SpecialSymbol::Reference => write!(f, "ref"),
+                    SpecialSymbol::Dereference => write!(f, "deref"),
                 }
             },
             Token::Operator(op) => {
@@ -244,9 +249,10 @@ impl Keyword {
     }
 }
 
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum NativeType {
     Void,
+    Pointer(Box<Type>),
     Integer,
     Float,
     Boolean
@@ -264,6 +270,7 @@ impl NativeType {
     pub fn get_size(&self) -> usize {
         match self {
             NativeType::Void => 0,
+            NativeType::Pointer(_) => 8,
             NativeType::Integer => 8,
             NativeType::Float => 8,
             NativeType::Boolean => 1
@@ -316,7 +323,9 @@ pub enum SpecialSymbol {
     CloseBracket,
     Comma,
     Colon,
-    Period
+    Period,
+    Reference,
+    Dereference
 }
 impl SpecialSymbol {
     pub fn from_string(string: &String) -> Option<SpecialSymbol> {
@@ -330,6 +339,8 @@ impl SpecialSymbol {
             "," => Some(SpecialSymbol::Comma),
             ":" => Some(SpecialSymbol::Colon),
             "." => Some(SpecialSymbol::Period),
+            "&" => Some(SpecialSymbol::Reference),
+            "*" => Some(SpecialSymbol::Dereference),
             _ => None
         }
     }
@@ -352,7 +363,11 @@ pub enum Operator {
 }
 impl Operator {
     pub fn from_string(string: &String) -> Option<Operator> {
-        match string.as_str() {
+        if !string.ends_with(" ") {
+            return None
+        }
+        let string = string.trim_end();
+        match string {
             "+" => Some(Operator::Plus),
             "-" => Some(Operator::Minus),
             "*" => Some(Operator::Multiply),
@@ -492,10 +507,10 @@ mod tests {
 
     #[test]
     fn test_operator_from_string() {
-        assert_eq!(Operator::from_string(&"+".to_string()), Some(Operator::Plus));
-        assert_eq!(Operator::from_string(&"-".to_string()), Some(Operator::Minus));
-        assert_eq!(Operator::from_string(&"*".to_string()), Some(Operator::Multiply));
-        assert_eq!(Operator::from_string(&"/".to_string()), Some(Operator::Divide));
+        assert_eq!(Operator::from_string(&"+ ".to_string()), Some(Operator::Plus));
+        assert_eq!(Operator::from_string(&"- ".to_string()), Some(Operator::Minus));
+        assert_eq!(Operator::from_string(&"* ".to_string()), Some(Operator::Multiply));
+        assert_eq!(Operator::from_string(&"/ ".to_string()), Some(Operator::Divide));
         assert_eq!(Operator::from_string(&"invalid".to_string()), None);
     }
 }

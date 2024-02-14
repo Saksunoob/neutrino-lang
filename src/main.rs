@@ -1,10 +1,10 @@
 use std::{env, fs, path::Path, process::{exit, Command}};
 
-use crate::{codegen::generate, lexer::tokenize, parser::parse};
+use crate::{new_codegen::generate, lexer::tokenize, parser::parse};
 
 mod lexer;
 mod parser;
-mod codegen;
+mod new_codegen;
 
 fn main() {
     let args: Vec<String> = env::args().collect();

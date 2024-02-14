@@ -1,6 +1,6 @@
 use std::{collections::HashMap, process::exit};
 
-use crate::parser::{Block, Expression, Function, FunctionCall, Instruction, SyntaxTree, Type};
+use crate::{lexer::NativeType, parser::{Block, Expression, Function, FunctionCall, Instruction, SyntaxTree, Type}};
 
 
 struct ASM {
@@ -113,9 +113,17 @@ impl Variables {
         eprintln!("Variable {name:?} not found");
         exit(1)
     }
-    pub fn generate_load_var_to(&self, asm: &mut ASM, var: &Vec<String>, size: usize, reg: &str) {
+    pub fn generate_load_var_to(&self, asm: &mut ASM, var: &Vec<String>, var_type: Type, reg: &str) {
+        println!("load_var_to {var:?} {var_type:?} {reg}");
         let addr = self.get_var_addr(var);
-        self.generate_load_addr_to(asm, addr, size, reg);
+        match var_type {
+            Type::Pointer(_) => self.generate_load_addr_to(asm, addr, var_type.get_size(), reg),
+            Type::Native(_) => self.generate_load_addr_to(asm, addr, var_type.get_size(), reg),
+            Type::Struct(_) => {
+                asm.push_instr(format!("MOV {reg}, {addr}"));
+            },
+        }
+        
     }
     pub fn generate_load_addr_to(&self, asm: &mut ASM, addr: usize, size: usize, reg: &str) {
         if size == 8 {
@@ -202,6 +210,7 @@ fn generate_instruction(asm: &mut ASM, instruction: &Instruction, variables: &mu
     match instruction {
         Instruction::Assignment { id, value } => {
             generate_expression(asm, value, variables);
+            println!("Assigning {value:?} to {id:?}");
             let addr = variables.get_var_addr(&id);
             asm.push_instr(format!("MOV [RSP+{addr}], RAX"));
         },
@@ -216,8 +225,14 @@ fn generate_instruction(asm: &mut ASM, instruction: &Instruction, variables: &mu
         },
         Instruction::Decleration { id, value } => {
             generate_expression(asm, value, variables);
-            if let Type::Native(value) = value.get_type() {
-                variables.push_value(asm, "RAX", value.get_size());
+            match value.get_type() {
+                Type::Native(value) => {
+                    variables.push_value(asm, "RAX", value.get_size());
+                },
+                Type::Pointer(_) => {
+                    variables.push_value(asm, "RAX", 8);
+                },
+                _ => (),
             }
             variables.new_variable(&id, value.get_type());
         },
@@ -228,6 +243,21 @@ fn generate_instruction(asm: &mut ASM, instruction: &Instruction, variables: &mu
 
 fn generate_expression(asm: &mut ASM, expression: &Expression, variables: &mut Variables) {
     match expression {
+        Expression::Pointer(expr) => {
+            match expr.as_ref() {
+                Expression::Variable(var, _) => {
+                    println!("Variable {var:?}");
+                    let addr = variables.get_var_addr(var);
+                    asm.push_instr(format!("MOV RAX, {addr}"));
+                },
+                _ => {
+                    generate_expression(asm, expr, variables);
+                    variables.push_value(asm, "RAX", expr.get_type().get_size());
+                    asm.push_instr("MOV RAX, [RSP]");
+                },
+            }
+            ;
+        },
         Expression::Value(value) => {
             match value {
                 crate::parser::Value::Native(value) => {
@@ -246,15 +276,17 @@ fn generate_expression(asm: &mut ASM, expression: &Expression, variables: &mut V
                     for value in struct_.field_values.iter().rev() {
                         generate_expression(asm, value, variables);
                         match value.get_type() {
+                            Type::Pointer(_) => variables.push_value(asm, "RAX", 8),
                             Type::Native(_) => variables.push_value(asm, "RAX", value.get_type().get_size()),
                             Type::Struct(_) => (),
                         }
                     }
+                    asm.push_instr("MOV RAX, [RSP]");
                 },
             }
         },
         Expression::Variable(var, type_) => {
-            variables.generate_load_var_to(asm, var, type_.get_size(), "RAX");
+            variables.generate_load_var_to(asm, var, type_.clone(), "RAX");
         },
         Expression::MathOpearation { lhv, rhv, operator } => {
             generate_expression(asm, rhv, variables);

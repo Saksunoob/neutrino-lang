@@ -78,10 +78,6 @@ impl Tokens {
     pub fn get_location_nth(&self, nth: usize) -> (usize, usize) {
         self.locations.get(nth+1).copied().unwrap_or((0, 0))
     }
-    pub fn consume(&mut self, amount: usize) {
-        self.locations.drain(0..amount);
-        self.tokens.drain(0..amount);
-    }
 }
 impl Display for Tokens {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {

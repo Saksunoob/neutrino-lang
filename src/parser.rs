@@ -400,7 +400,11 @@ fn parse_expression(tokens: &mut Tokens, variables: &mut HashMap<String, Type>, 
                                 let type_ = signature.get_type(&path[1..].to_vec());
                                 Expression::Variable(path, type_)
                             },
-                            Type::Native(_) => {
+                            Type::Native(NativeType::Pointer(inner_type)) => {
+                                let type_ = inner_type.get_type(&path[1..].to_vec());
+                                Expression::Variable(path, type_)
+                            },
+                            _ => {
                                 if path.len() != 1 {
                                     panic!("Cannot get field {:?} of native type {:?}", path, type_)
                                 }
@@ -554,6 +558,24 @@ impl Type {
             Type::Struct(struct_signature) => struct_signature.get_size(),
         }
     }
+    pub fn get_offset(&self, path: &[String]) -> usize {
+        if path.len() == 0 {
+            return 0;
+        }
+        match self {
+            Type::Native(_) => panic!("Native type doesn't have fields"),
+            Type::Struct(signature) => signature.get_offset(path),
+        }
+    }
+    pub fn get_type(&self, path: &[String]) -> Type {
+        if path.len() == 0 {
+            return self.clone();
+        }
+        match self {
+            Type::Native(_) => panic!("Native type doesn't have fields"),
+            Type::Struct(signature) => signature.get_type(path),
+        }
+    }
 }
 
 #[derive(Debug, PartialEq, Clone)]
@@ -592,7 +614,7 @@ impl InitialNativeType {
     pub fn from_native_type(type_: &NativeType) -> Self {
         match type_ {
             NativeType::Void => InitialNativeType::Void,
-            NativeType::Pointer(inner) => unreachable!(),
+            NativeType::Pointer(_) => unreachable!(),
             NativeType::Integer => InitialNativeType::Integer,
             NativeType::Float => InitialNativeType::Float,
             NativeType::Boolean => InitialNativeType::Boolean
@@ -669,13 +691,12 @@ impl GlobalInfo {
 }
 #[derive(Debug)]
 struct FunctionSignature {
-    name: String,
     arguments: Vec<Type>,
     return_type: Type
 }
 impl FunctionSignature {
-    pub fn new(name: String, arguments: Vec<Type>, return_type: Type) -> Self {
-        Self { name, arguments, return_type }
+    pub fn new(arguments: Vec<Type>, return_type: Type) -> Self {
+        Self { arguments, return_type }
     }
 }
 
@@ -694,16 +715,7 @@ impl StructSignature {
             return 0;
         }
         if let Some(field) = self.field_mapping.get(&path[0]) {
-            match &field.1 {
-                Type::Native(type_) => {
-                    if path.len() != 1 {
-                        panic!("Cannot get field {:?} of native type {:?}", path, type_)
-                    }
-                    field.0
-                },
-                Type::Struct(struct_signature) => struct_signature.get_offset(&path[1..].to_vec()),
-            }
-            
+            field.0+field.1.get_offset(&path[1..])
         } else {
             panic!("Field {} not found in struct {}", path[0], self.name)
         }
@@ -713,15 +725,7 @@ impl StructSignature {
             return Type::Struct(self.clone());
         }
         if let Some(field) = self.field_mapping.get(&path[0]) {
-            match &field.1 {
-                Type::Native(type_) => {
-                    if path.len() != 1 {
-                        panic!("Cannot get field {:?} of native type {:?}", path, type_)
-                    }
-                    Type::Native(type_.clone())
-                },
-                Type::Struct(struct_signature) => struct_signature.get_type(&path[1..].to_vec()),
-            }
+            field.1.get_type(&path[1..])
         } else {
             panic!("Field {} not found in struct {}", path[0], self.name)
         }
@@ -774,7 +778,7 @@ fn extract_global_info(tokens: &Tokens) -> Result<GlobalInfo, ParseError> {
         let arguments = function_signature.1.into_iter().map(|initial_value| initial_value.validate(&HashMap::new(), &global_info.struct_signatures).unwrap()).collect();
         let return_type = function_signature.2.validate(&HashMap::new(), &global_info.struct_signatures).map_err(|err| ParseError::new(err.msg, tokens.get_prev_location()))?;
 
-        global_info.function_signatures.insert(name.clone(), FunctionSignature::new(name, arguments, return_type));
+        global_info.function_signatures.insert(name.clone(), FunctionSignature::new(arguments, return_type));
     }
 
     Ok(global_info)

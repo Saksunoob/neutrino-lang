@@ -258,28 +258,38 @@ impl Variables {
         panic!("Variable {name} not found")
     }
 
-    /// Loads the value of a variable to the RAX register
-    pub fn load_var_value(&mut self, name: &Vec<String>, asm: &mut ASM) {
-        let var = self.get_variable(&name[0]); // Get the parent variable
-        match &var.var_type {
-            Type::Native(NativeType::Pointer(inner_type)) => {
-                // Get offset of field
-                let field_offset = inner_type.get_offset(&name[1..]);
-                // Load pointer to RBX
-                self.load_addr_to_reg(self.stack_pointer-var.pointer, "RBX", 8, asm);
-                // Add offset
-                asm.push_instr(format!("ADD RBX, {field_offset}"));
-                // Store value
-                asm.push_instr("MOV RAX, [RBX]");
-            },
-            _ => {
-                let field = var.get_field(&name[1..]);
-                let field_addr = self.stack_pointer - field.pointer;
-
-                self.load_addr_to_reg(field_addr, "RAX", field.var_type.get_size(), asm);
+    /// Loads the value of a variable or field to the RAX register.
+    /// Load variable address to RBX before calling
+    pub fn load_field_value(&self, path: &[String], type_: &Type, asm: &mut ASM) {
+        println!("Loading field value of {:?} of type {:?}", path, type_);
+        match type_ {
+            Type::Struct(signature) => {
+                let field = signature.field_mapping.get(&path[0]).unwrap();
+                asm.push_instr(format!("ADD RBX, {}", field.0)); // Account for offset
+                self.load_field_value(&path[1..], &field.1, asm);
+            }
+            Type::Native(native_type) => {
+                if path.len() != 0 {
+                    if let NativeType::Pointer(inner_type) = native_type {
+                        asm.push_instr("MOV RBX, [RBX]");
+                        self.load_field_value(path, &inner_type, asm);
+                        return;
+                    }
+                    panic!("Cannot get field {:?} of native type {:?}", path, type_)
+                }
+                if native_type.get_size() == 8 {
+                    asm.push_instr(format!("MOV RAX, [RBX]"));
+                } else {
+                    let size_id = match native_type.get_size() {
+                        1 => "BYTE",
+                        2 => "WORD",
+                        4 => "DWORD",
+                        _ => unreachable!(),
+                    };
+                    asm.push_instr(format!("MOVZX RAX, {size_id} [RBX]"));
+                }
             }
         }
-        
     }
 }
 
@@ -441,7 +451,10 @@ fn generate_expression(asm: &mut ASM, expression: &Expression, variables: &mut V
             }
         },
         Expression::Variable(id, _) => {
-            variables.load_var_value(id, asm);
+            let parent = variables.get_variable(&id[0]);
+            asm.push_instr("MOV RBX, RSP");
+            asm.push_instr(format!("ADD RBX, {}", variables.stack_pointer - parent.pointer));
+            variables.load_field_value(&id[1..], &parent.var_type, asm);
         },
         Expression::MathOpearation { lhv, rhv, operator } => {
             generate_expression(asm, rhv, variables);

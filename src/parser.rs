@@ -397,17 +397,14 @@ fn parse_expression(tokens: &mut Tokens, variables: &mut HashMap<String, Type>, 
                         let type_ = variables.get(&id).unwrap();
                         match type_ {
                             Type::Struct(signature) => {
-                                let type_ = signature.get_type(&path[1..].to_vec());
+                                let type_ = signature.get_type(&path[1..]);
                                 Expression::Variable(path, type_)
                             },
                             Type::Native(NativeType::Pointer(inner_type)) => {
-                                let type_ = inner_type.get_type(&path[1..].to_vec());
+                                let type_ = inner_type.get_type(&path[1..]);
                                 Expression::Variable(path, type_)
                             },
                             _ => {
-                                if path.len() != 1 {
-                                    panic!("Cannot get field {:?} of native type {:?}", path, type_)
-                                }
                                 Expression::Variable(path, type_.clone())
                             }
                         }
@@ -568,11 +565,18 @@ impl Type {
         }
     }
     pub fn get_type(&self, path: &[String]) -> Type {
+        println!("Getting type of {:?} of {:?}", path, self);
         if path.len() == 0 {
             return self.clone();
         }
         match self {
-            Type::Native(_) => panic!("Native type doesn't have fields"),
+            Type::Native(native_type) => {
+                if let NativeType::Pointer(inner_type) = native_type {
+                    inner_type.get_type(path)
+                } else {
+                    panic!("Native type doesn't have fields")
+                }
+            },
             Type::Struct(signature) => signature.get_type(path),
         }
     }
@@ -925,18 +929,7 @@ fn extract_struct_signature(tokens: &Tokens, mut index: usize) -> Result<(String
                 break
             },
             lexer::Token::Identifier(field_name) => {
-                index += 1;
-                match tokens.peek_nth(index) {
-                    Token::Type(type_) => {
-                        fields.push((field_name.clone(), InitialType::Native(InitialNativeType::from_native_type(type_))));
-                    },
-                    Token::Identifier(struct_name) => {
-                        fields.push((field_name.clone(), InitialType::UnknownStruct(struct_name.clone())));
-                    }
-                    _ => {
-                        return Err(ParseError::new("Expected field type".to_string(), tokens.get_location_nth(index)));
-                    }
-                }
+                fields.push((field_name.clone(), extract_type(tokens, &mut index)?));
                 index += 1;
                 if let lexer::Token::SpecialSymbol(lexer::SpecialSymbol::Comma) = tokens.peek_nth(index) {
                     index += 1;
